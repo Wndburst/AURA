@@ -1,8 +1,8 @@
 /**
  * Prueba de carga: un lobby con mucha gente juzgando a la vez.
  *
- *   PORT=8099 PREP_MS=3000 BATTLE_MS=12000 PERSISTENCE=off node dist/index.js &
- *   node test/load.mjs 200
+ *   npm run start:test     (en otra terminal)
+ *   npm run test:load 200
  *
  * Mide latencia de los ACK de juicio y cuántos eventos recibe cada cliente:
  * lo que realmente importa es que el coalescing evite la tormenta de difusión.

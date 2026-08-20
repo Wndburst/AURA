@@ -134,8 +134,22 @@ aurafarm.cl {
 ```bash
 npm ci
 npm run build
-NODE_ENV=production PORT=8080 node server/dist/index.js
+npm start          # lee el archivo .env si existe
 ```
+
+Node carga `.env` solo al arrancar (`--env-file-if-exists`), así que en un servidor propio
+basta con dejar ahí la configuración:
+
+```ini
+# .env, junto al package.json
+NODE_ENV=production
+PORT=8080
+PREP_MS=60000
+BATTLE_MS=120000
+```
+
+> Las variables del entorno real ganan sobre el archivo. En Render, Fly o Railway define
+> todo en el panel del servicio y ni siquiera necesitas `.env`.
 
 Con systemd, para que sobreviva reinicios:
 
@@ -167,9 +181,10 @@ sudo systemctl enable --now aura-farm
 
 ## Ajustes antes de un evento
 
-Todo por variables de entorno, sin recompilar:
+Todo se cambia sin recompilar: en el panel del hosting, o en el `.env` si corres en tu
+propio servidor.
 
-```bash
+```ini
 # Batallas más cortas para que roten rápido con mucha gente en fila
 PREP_MS=45000
 BATTLE_MS=90000

@@ -3,6 +3,9 @@ dist/
 data/
 .env
 .env.local
+!.env.example
+!.env.fast
+!.env.test
 *.log
 .DS_Store
 Thumbs.db

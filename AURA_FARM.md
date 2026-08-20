@@ -254,6 +254,10 @@ Un jugador puede tener varias pestañas abiertas (`sockets: Set`).
 
 ## 6. Variables de entorno
 
+En local se definen en un archivo `.env` (plantilla en `.env.example`) que Node carga solo
+al arrancar, vía `--env-file-if-exists`. En producción se definen en el panel del hosting;
+las variables del entorno real tienen prioridad sobre el archivo.
+
 | Variable | Default | Descripción |
 |---|---|---|
 | `PORT` | `8080` | Puerto HTTP. |

@@ -21,7 +21,8 @@ NICKNAME  →  CREAR / UNIRSE  →  LOBBY  →  ARENA
 ```bash
 npm install
 npm run build
-npm start          # http://localhost:8080
+npm start            # http://localhost:8080  (tiempos reales: 1 min + 2 min)
+npm run start:fast   # http://localhost:8080  (8 s + 25 s, para probar sin esperar)
 ```
 
 Para desarrollo con recarga en caliente (servidor en `:8080`, front en `:5173` con proxy):
@@ -30,12 +31,33 @@ Para desarrollo con recarga en caliente (servidor en `:8080`, front en `:5173` c
 npm run dev
 ```
 
-Y para probarlo de verdad: abre `http://localhost:5173` en dos o tres pestañas —o en el
-celular, usando la IP de tu máquina en la red local— crea un lobby en una, únete con el
-código en las otras, y aprieta **BATALLAR ☠️** en dos de ellas.
+Y para probarlo de verdad: abre `http://localhost:5173` en dos o tres pestañas —cada una en
+ventana de incógnito, porque la identidad se guarda en `localStorage`— crea un lobby en una,
+únete con el código en las otras, y aprieta **BATALLAR ☠️** en dos de ellas. La tercera es
+la que juzga.
 
-> Con los tiempos por defecto hay que esperar 1 minuto de preparación. Para probar rápido:
-> `PREP_MS=3000 BATTLE_MS=10000 npm start`.
+Desde el celular en la misma red: usa la IP de tu máquina (`ipconfig` en Windows,
+`ip addr` en Linux), por ejemplo `http://192.168.1.10:8080`.
+
+### Configuración sin pelear con la shell
+
+Los ajustes viven en un archivo `.env` que Node carga solo al arrancar — no hay que exportar
+variables a mano, y menos lidiar con que `VAR=x comando` no existe en PowerShell.
+
+```powershell
+Copy-Item .env.example .env    # o `cp .env.example .env` en bash
+```
+
+Edita `.env`, reinicia, listo. Hay dos presets ya listos y versionados:
+
+| Comando | Para qué |
+|---|---|
+| `npm start` | Lee tu `.env`. Si no existe, usa los defaults. |
+| `npm run start:fast` | Preparación 8 s, batalla 25 s. Para probar sin esperar. |
+| `npm run start:test` | Puerto 8099 y tiempos mínimos. Lo usan las pruebas de integración. |
+
+> Las variables del entorno real tienen prioridad sobre el archivo, así que en producción el
+> hosting manda y un `.env` colado en la imagen no puede pisarlo.
 
 ---
 
@@ -99,11 +121,11 @@ npm test           # 26 unitarios del dominio: matchmaking, fases, juicios, resu
 npm run typecheck  # servidor y cliente
 ```
 
-Los de integración necesitan un servidor levantado, con tiempos acortados:
+Los de integración necesitan un servidor levantado en el puerto 8099:
 
 ```bash
 # terminal 1
-PORT=8099 PREP_MS=1500 BATTLE_MS=2500 RESULT_MS=800 PERSISTENCE=off npm start
+npm run start:test
 
 # terminal 2
 npm run test:e2e          # 50 verificaciones sobre sockets reales
@@ -118,8 +140,9 @@ cae primero: la difusión del estado. Los números medidos están en
 
 ## Configuración
 
-Todo tiene default sensato y se puede desplegar sin tocar nada. Las variables están
-documentadas en [.env.example](.env.example); las que más se usan:
+Todo tiene default sensato y se puede desplegar sin tocar nada. En local van en `.env`
+(copia de [.env.example](.env.example)); en producción, como variables de entorno del
+hosting. Las que más se usan:
 
 | Variable | Default | Para qué |
 |---|---|---|
