@@ -35,6 +35,35 @@ En la consola de Oracle Cloud:
 Espera 1-2 minutos hasta que el estado pase a **Running**, y copia la **Public IP Address**
 de la página de la instancia. La vas a necesitar el resto de la guía.
 
+### Si sale "Out of capacity for shape VM.Standard.A1.Flex"
+
+**Muy común, no es nada que hiciste mal.** La cuota gratis de Ampere A1 es la más pedida de
+todo Oracle Free Tier y en la mayoría de las regiones se agota en segundos apenas alguien la
+libera. Dos caminos:
+
+**Opción A — usar el otro shape gratis, ahora mismo (recomendado).** Oracle también regala
+para siempre un `VM.Standard.E2.1.Micro` (x86, 1 GB RAM), y **casi nunca tiene problemas de
+capacidad** porque casi nadie lo pide — todos van al A1. Esta app mide ~96 MB de RAM con 300
+personas conectadas, así que 1 GB sobra. En el selector de shape: activa **"Specialty and
+previous generation"** (o similar, según el idioma de tu consola) y elige
+`VM.Standard.E2.1.Micro`. El resto de esta guía es idéntico — sólo cambia el shape en el
+paso 3. Nada te impide crear *también* un A1 más adelante cuando aparezca cupo: son cuotas
+separadas, no gastas nada por intentarlo dos veces.
+
+**Opción B — insistir con el A1.** La capacidad fluctúa todo el día; reintentar "Create" cada
+tanto (o probar con una configuración más chica, tipo 1 OCPU / 1 GB en vez de 6 GB, que a
+veces entra donde la más grande no) suele funcionar en algún momento del día. Si tu región
+tiene más de un Availability Domain, probar en otro AD también ayuda — muchas regiones
+nuevas sólo tienen uno, así que puede no estar disponible esa opción.
+
+### ⚠️ Revisa esto antes de crear (te falta en la config que mostraste)
+
+**Networking → Public IPv4 address** tiene que decir **"Yes"**, no "No". Sin IP pública la
+VM queda encerrada en la red privada y nadie de afuera —ni tu celular, ni nadie del
+lobby— va a poder llegar a la app aunque todo lo demás funcione perfecto. Es la casilla
+**"Assign a public IPv4 address"** en la sección Networking del asistente: actívala antes
+de hacer clic en Create.
+
 ### Conectarte por SSH
 
 Desde PowerShell, en la carpeta donde bajaste la clave:
