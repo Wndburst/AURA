@@ -91,6 +91,14 @@ y SSH se niega a usarla si no las corriges. Di `yes` cuando pregunte por el fing
    - Source CIDR `0.0.0.0/0` · IP Protocol `TCP` · Destination Port Range `80`
    - Source CIDR `0.0.0.0/0` · IP Protocol `TCP` · Destination Port Range `443`
 
+> **Ojo con el formulario:** hay dos campos parecidos, **"Source Port Range"** y
+> **"Destination Port Range"**, y es fácil ponerlos al revés. El puerto al que te querés
+> conectar (`80`, `443`) va en **Destination**. **Source Port Range** tiene que quedar
+> vacío / en `All` — es el puerto que usa el navegador de quien se conecta, que siempre es
+> aleatorio. Si los invertís, la regla queda guardada pero no deja pasar nada — sin ningún
+> error visible, así que conviene revisar la tabla después de guardar y confirmar que el
+> número quedó en la columna "Destination Port Range".
+
 ### 2b. Dentro de la VM (esto es lo que casi todos se saltan)
 
 ```bash
@@ -222,6 +230,8 @@ El volumen `aura-data` no se toca, así que el leaderboard sobrevive al redeploy
 | Síntoma | Causa casi siempre |
 |---|---|
 | `curl localhost` funciona en la VM pero la IP pública no responde desde afuera | Falta el paso 2b (`iptables`) o el 2a (Security List) |
+| La Security List tiene las reglas de 80/443 pero igual no entra nada | Revisa que el puerto esté en **"Destination Port Range"** y no en **"Source Port Range"** — son campos parecidos y se invierten fácil (ver nota en el paso 2a) |
+| Funciona desde una PC o por wifi, pero no desde el celular con datos móviles | Común: varias operadoras móviles bloquean HTTP directo a una IP (sin nombre de dominio) como medida antispam. Probá desde el celular por wifi para confirmarlo — si ahí sí funciona, la solución es el dominio + HTTPS del paso 5 |
 | `Permission denied (publickey)` al hacer SSH | Permisos de la clave en Windows — repite los `icacls` del paso 1 |
 | `docker: permission denied` | No cerraste sesión después del `usermod -aG docker` (paso 3) |
 | El contenedor arranca y muere al toque | `docker logs aura-farm` — casi siempre falta el `.env` o el puerto 80 ya está ocupado |
