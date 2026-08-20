@@ -58,7 +58,9 @@ interface State {
   joinLobby: (code: string) => Promise<boolean>;
   leaveLobby: () => Promise<void>;
 
-  toggleSearch: () => Promise<void>;
+  createBattle: (aId: string, bId: string) => Promise<boolean>;
+  kickPlayer: (playerId: string) => Promise<boolean>;
+  closeLobby: () => Promise<void>;
   judge: (targetId: string, amount: number) => Promise<void>;
 
   openArena: () => void;
@@ -211,6 +213,23 @@ export const useStore = create<State>((set, get) => ({
 
     socket.on('battle:archived', () => set({ arenaDismissed: null }));
 
+    // Me expulsaron: el servidor ya cortó mi socket, sólo queda avisar y volver.
+    socket.on('admin:kicked', (payload: { message?: string }) => {
+      setLastLobby('');
+      if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+      set({ lobby: null, you: null, screen: 'gate', feed: [], floaters: [], arenaDismissed: null });
+      get().toast(payload?.message ?? 'Te expulsaron del lobby.', 'bad');
+    });
+
+    // El host cerró el lobby (puede ser otro dispositivo del propio host, o
+    // simplemente enterarme yo mismo si fui quien lo cerró desde otra pestaña).
+    socket.on('lobby:closed', (payload: { message?: string }) => {
+      setLastLobby('');
+      if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+      set({ lobby: null, you: null, screen: 'gate', feed: [], floaters: [], arenaDismissed: null });
+      get().toast(payload?.message ?? 'El lobby se cerró.', 'info');
+    });
+
     socket.on('error', (payload: { error?: string }) => {
       if (payload?.error) get().toast(payload.error, 'bad');
     });
@@ -307,23 +326,33 @@ export const useStore = create<State>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  async toggleSearch() {
-    const you = get().you;
-    if (!you) return;
-
-    if (you.searching) {
-      await request('battle:cancelSearch');
-      get().toast('Saliste de la cola.', 'info');
-      return;
-    }
-
-    const res = await request('battle:search');
+  async createBattle(aId: string, bId: string) {
+    const res = await request('battle:create', { aId, bId });
     if (!res.ok) {
       get().toast(res.error, 'bad');
       sfx.denied();
-      return;
+      return false;
     }
-    get().toast('Buscando contrincante… ☠️', 'info');
+    get().toast('Batalla creada ⚔️', 'ok');
+    return true;
+  },
+
+  async kickPlayer(playerId: string) {
+    const res = await request<{ nickname: string }>('admin:kick', { playerId });
+    if (!res.ok) {
+      get().toast(res.error, 'bad');
+      return false;
+    }
+    get().toast(`Expulsaste a ${res.nickname}.`, 'info');
+    return true;
+  },
+
+  async closeLobby() {
+    const res = await request('admin:close');
+    setLastLobby('');
+    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    set({ lobby: null, you: null, screen: 'gate', feed: [], floaters: [], arenaDismissed: null });
+    if (!res.ok) get().toast(res.error, 'bad');
   },
 
   async judge(targetId: string, amount: number) {
@@ -403,6 +432,11 @@ export function selectArenaBattle(state: State): BattleDTO | null {
   if (!battle) return null;
   if (state.arenaDismissed === battle.id) return null;
   return battle;
+}
+
+/** ¿Soy el organizador de este lobby? Deriva de hostId, no hace falta un campo aparte. */
+export function selectIsHost(state: State): boolean {
+  return Boolean(state.lobby && state.lobby.hostId === state.playerId);
 }
 
 export { serverNow };

@@ -1,11 +1,10 @@
 import { useEffect } from 'react';
-import { useStore } from '../store/useStore';
+import { useStore, selectIsHost } from '../store/useStore';
 import { useCopy } from '../lib/hooks';
 import { Leaderboard } from '../components/Leaderboard';
 import { Connected } from '../components/Connected';
 import { BattlesList } from '../components/BattlesList';
 import { BattleBanner } from '../components/BattleBanner';
-import { unlockAudio } from '../lib/sfx';
 import type { Tab } from '../store/useStore';
 
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -50,47 +49,28 @@ function ShareRow() {
   );
 }
 
-function BattleButton() {
-  const you = useStore((s) => s.you);
-  const lobby = useStore((s) => s.lobby);
-  const status = useStore((s) => s.status);
-  const toggleSearch = useStore((s) => s.toggleSearch);
+function CloseLobbyButton() {
+  const isHost = useStore(selectIsHost);
+  const closeLobby = useStore((s) => s.closeLobby);
 
-  const searching = you?.searching ?? false;
-  const booked = Boolean(you?.fightingBattleId);
-  const offline = status !== 'online';
-  const waiting = lobby?.searchingCount ?? 0;
+  if (!isHost) return null;
 
-  const label = booked
-    ? 'Ya tienes batalla ⚔️'
-    : searching
-      ? 'Buscando contrincante…'
-      : 'Batallar ☠️';
+  const close = () => {
+    // Destructivo para todo el lobby a la vez: confirm() nativo alcanza, no
+    // hace falta un modal para una acción de una sola vez por evento.
+    if (!window.confirm('¿Cerrar el lobby para siempre? Nadie va a poder volver a entrar con este código.')) {
+      return;
+    }
+    void closeLobby();
+  };
 
   return (
-    <div className="bottombar">
-      <button
-        className={`btn btn--block ${searching ? 'btn--searching' : 'btn--danger'}`}
-        type="button"
-        disabled={booked || offline}
-        onClick={() => {
-          unlockAudio();
-          void toggleSearch();
-        }}
-      >
-        {label}
+    <>
+      <span style={{ color: 'var(--ink-faint)' }}>·</span>
+      <button className="link-btn" type="button" onClick={close} style={{ color: 'var(--blood)' }}>
+        cerrar lobby
       </button>
-
-      <div className="bottombar__note">
-        {booked
-          ? 'Prepárate. Tu batalla ya está agendada.'
-          : searching
-            ? 'Toca de nuevo para salir de la cola.'
-            : waiting > 0
-              ? `${waiting} ${waiting === 1 ? 'persona buscando' : 'personas buscando'} — entra y matchea al toque`
-              : 'Que el público decida cuánta aura tienes.'}
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -137,21 +117,18 @@ export function LobbyScreen() {
           >
             {item.label}
             {item.id === 'batallas' && queued > 0 && <span className="tab__badge">{queued}</span>}
-            {item.id === 'conectados' && lobby.searchingCount > 0 && (
-              <span className="tab__badge">{lobby.searchingCount}</span>
-            )}
           </button>
         ))}
       </nav>
 
-      <main className="content">
+      <main className="content content--no-bar">
         <BattleBanner />
 
         {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'conectados' && <Connected />}
         {tab === 'batallas' && <BattlesList />}
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 24 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 4, marginTop: 24 }}>
           <button className="link-btn" type="button" onClick={() => goTo('nickname')}>
             cambiar nickname
           </button>
@@ -159,14 +136,13 @@ export function LobbyScreen() {
           <button className="link-btn" type="button" onClick={() => void leaveLobby()}>
             salir del lobby
           </button>
+          <CloseLobbyButton />
         </div>
 
         <p className="footer-note">
           Tu aura queda guardada en este lobby aunque cierres la app.
         </p>
       </main>
-
-      <BattleButton />
     </div>
   );
 }

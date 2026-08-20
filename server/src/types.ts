@@ -15,7 +15,6 @@ export interface Player {
   battles: number;
   /** Sockets abiertos de este jugador (varias pestañas permitidas). */
   sockets: Set<string>;
-  searching: boolean;
   joinedAt: number;
   lastSeen: number;
 }
@@ -76,7 +75,6 @@ export interface PlayerDTO {
   draws: number;
   battles: number;
   online: boolean;
-  searching: boolean;
   inBattle: boolean;
   isHost: boolean;
 }
@@ -118,7 +116,6 @@ export interface LobbyStateDTO {
   serverTime: number;
   playerCount: number;
   onlineCount: number;
-  searchingCount: number;
   /**
    * Lista completa de jugadores. Se omite cuando no cambió desde el último
    * envío: el cliente conserva la que ya tenía. Es la parte cara del snapshot.
@@ -137,7 +134,7 @@ export interface YouDTO {
   nickname: string;
   lobbyId: LobbyId | null;
   aura: number;
-  searching: boolean;
+  isHost: boolean;
   /** Batalla en la que estoy compitiendo, si aplica. */
   fightingBattleId: BattleId | null;
   /** Juicios que me quedan en la batalla actual (null = ilimitado). */

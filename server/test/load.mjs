@@ -81,8 +81,8 @@ async function main() {
   console.log(`  ${crowd.length} conectados en ${Date.now() - t0} ms`);
 
   const [fa, fb] = crowd;
-  await ask(fa, 'battle:search');
-  await ask(fb, 'battle:search');
+  // El host arma la batalla a mano: ya no hay cola automática.
+  await ask(host, 'battle:create', { aId: fa.playerId, bId: fb.playerId });
   console.log('· esperando que arranque la batalla…');
 
   const deadline = Date.now() + 30000;

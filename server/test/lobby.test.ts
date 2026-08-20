@@ -10,6 +10,7 @@ import { TokenBucket } from '../src/util/rateLimit.js';
 
 const T0 = 1_700_000_000_000;
 
+/** Primer jugador que entra queda de host, automáticamente. */
 function lobbyWith(...nicknames: string[]) {
   const lobby = new Lobby();
   const ids = nicknames.map((nick, i) => {
@@ -17,7 +18,7 @@ function lobbyWith(...nicknames: string[]) {
     lobby.join(id, nick, `socket-${i}`, T0);
     return id;
   });
-  return { lobby, ids };
+  return { lobby, ids, hostId: ids[0]! };
 }
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,8 @@ test('el código de lobby usa el alfabeto sin ambigüedades', () => {
   const lobby = new Lobby();
   assert.equal(lobby.code.length, 6);
   assert.ok(isLobbyCode(lobby.code));
-  assert.ok(!/[01OIL]/.test(lobby.code));
+  // El alfabeto excluye 0/1/O/I por ambigüedad visual, pero sí incluye L.
+  assert.ok(!/[01OI]/.test(lobby.code));
 });
 
 test('parseJoinInput acepta código pelado, con ruido y URL completa', () => {
@@ -52,6 +54,19 @@ test('el nickname se sanea y se hace único dentro del lobby', () => {
   assert.equal(uniqueNickname('pepe', taken), 'pepe (2)');
   assert.equal(uniqueNickname('PEPE', taken), 'PEPE (2)');
   assert.equal(uniqueNickname('pepe', taken, '1'), 'pepe');
+});
+
+test('el primero que entra queda de host', () => {
+  const { lobby, ids } = lobbyWith('uno', 'dos');
+  assert.equal(lobby.hostId, ids[0]);
+  assert.equal(lobby.isHostOf(ids[0]!), true);
+  assert.equal(lobby.isHostOf(ids[1]!), false);
+});
+
+test('si el host se va, el rol pasa a otro conectado', () => {
+  const { lobby, ids } = lobbyWith('uno', 'dos');
+  lobby.leave(ids[0]!, 'socket-0', T0);
+  assert.equal(lobby.hostId, ids[1]);
 });
 
 test('reconectarse conserva el aura y no duplica al jugador', () => {
@@ -78,71 +93,119 @@ test('varias pestañas del mismo jugador cuentan como un solo conectado', () => 
 });
 
 // ---------------------------------------------------------------------------
-// Matchmaking
+// El host arma las batallas
 // ---------------------------------------------------------------------------
 
-test('un solo jugador buscando no genera batalla', () => {
-  const { lobby, ids } = lobbyWith('uno', 'dos');
-  lobby.startSearching(ids[0]!);
-  lobby.tick(T0);
-  assert.equal(lobby.current, null);
-  assert.equal(lobby.searchingCount(), 1);
+test('el host puede crear una batalla entre dos jugadores', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  const res = lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
+  assert.equal(res.ok, true);
+  assert.equal(lobby.queue.length, 1);
+  assert.equal(lobby.queue[0]!.status, 'QUEUED');
 });
 
-test('dos jugadores buscando se matchean y la batalla queda agendada a 1 minuto', () => {
-  const { lobby, ids } = lobbyWith('uno', 'dos');
-  lobby.startSearching(ids[0]!);
-  lobby.startSearching(ids[1]!);
+test('quien no es host no puede crear batallas', () => {
+  const { lobby, ids } = lobbyWith('host', 'a', 'b');
+  const res = lobby.createHostBattle(ids[1]!, ids[1]!, ids[2]!, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'NOT_HOST');
+  assert.equal(lobby.queue.length, 0);
+});
 
-  const events = lobby.tick(T0);
-  assert.ok(events.some((e) => e.type === 'matched'));
-  assert.ok(lobby.current);
+test('no se puede armar una batalla contra uno mismo', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a');
+  const res = lobby.createHostBattle(hostId, ids[1]!, ids[1]!, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'SAME_PLAYER');
+});
+
+test('no se puede armar una batalla con alguien que ya no está', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a');
+  const res = lobby.createHostBattle(hostId, ids[1]!, 'fantasma', T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'NOT_FOUND');
+});
+
+test('no se puede armar una batalla con alguien ya comprometido en otra', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b', 'c');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
+  const res = lobby.createHostBattle(hostId, ids[1]!, ids[3]!, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'ALREADY_BOOKED');
+});
+
+test('la primera batalla queda agendada de inmediato; la segunda espera en cola', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b', 'c', 'd');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
+  lobby.tick(T0);
   assert.equal(lobby.current!.status, 'SCHEDULED');
   assert.equal(lobby.current!.startsAt, T0 + config.prepMs);
-  assert.equal(lobby.players.get(ids[0]!)!.searching, false);
-  assert.equal(lobby.searchingCount(), 0);
-});
 
-test('la segunda batalla espera en cola y recién se agenda cuando termina la primera', () => {
-  const { lobby, ids } = lobbyWith('a', 'b', 'c', 'd');
-  ids.forEach((id) => lobby.startSearching(id));
-  lobby.tick(T0);
-
-  assert.equal(lobby.current!.status, 'SCHEDULED');
+  lobby.createHostBattle(hostId, ids[3]!, ids[4]!, T0);
   assert.equal(lobby.queue.length, 1);
   assert.equal(lobby.queue[0]!.status, 'QUEUED', 'la cola no arranca su preparación todavía');
 
+  // Cada transición de fase se resuelve en su propio tick: un salto grande de
+  // tiempo no cascade-a varias fases de una, hay que pasar por cada frontera.
   lobby.tick(T0 + config.prepMs); // arranca la primera
   assert.equal(lobby.current!.status, 'ACTIVE');
   assert.equal(lobby.queue.length, 1);
 
   const end = T0 + config.prepMs + config.battleMs;
-  lobby.tick(end); // termina la primera y promueve la segunda
+  lobby.tick(end); // termina la primera, la archiva y promueve la segunda
   assert.equal(lobby.current!.status, 'SCHEDULED');
   assert.equal(lobby.current!.startsAt, end + config.prepMs, 'la segunda también tiene su minuto');
   assert.equal(lobby.queue.length, 0);
   assert.ok(lobby.lastResult, 'el resultado de la primera sigue en pantalla');
 });
 
-test('no se puede buscar batalla estando ya comprometido en una', () => {
-  const { lobby, ids } = lobbyWith('a', 'b');
-  lobby.startSearching(ids[0]!);
-  lobby.startSearching(ids[1]!);
-  lobby.tick(T0);
+// ---------------------------------------------------------------------------
+// Moderación: kick y cierre
+// ---------------------------------------------------------------------------
 
-  const result = lobby.startSearching(ids[0]!);
-  assert.equal(result.ok, false);
+test('el host puede expulsar a alguien, que no puede volver a entrar', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'molesto');
+  const res = lobby.kick(hostId, ids[1]!, T0);
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.sockets, ['socket-1']);
+  assert.equal(res.nickname, 'molesto');
+
+  assert.equal(lobby.players.has(ids[1]!), false, 'desaparece del leaderboard');
+  assert.equal(lobby.isBanned(ids[1]!), true);
+
+  // Intenta volver a entrar: el gateway consulta esto antes de aceptar el join.
+  assert.equal(lobby.isBanned(ids[1]!), true);
 });
 
-test('desconectarse saca de la cola de búsqueda', () => {
-  const { lobby, ids } = lobbyWith('a', 'b');
-  lobby.startSearching(ids[0]!);
-  lobby.detachSocket(ids[0]!, 'socket-0', T0);
-  assert.equal(lobby.searchingCount(), 0);
+test('quien no es host no puede expulsar a nadie', () => {
+  const { lobby, ids } = lobbyWith('host', 'a', 'b');
+  const res = lobby.kick(ids[1]!, ids[2]!, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'NOT_HOST');
+  assert.equal(lobby.players.has(ids[2]!), true);
+});
 
-  lobby.startSearching(ids[1]!);
-  lobby.tick(T0);
-  assert.equal(lobby.current, null, 'no hay con quién matchear');
+test('el host no puede expulsarse a sí mismo', () => {
+  const { lobby, hostId } = lobbyWith('host', 'a');
+  const res = lobby.kick(hostId, hostId, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'CANNOT_TARGET_SELF');
+});
+
+test('no se puede expulsar a alguien que está peleando ahora mismo', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
+  const res = lobby.kick(hostId, ids[1]!, T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'ALREADY_BOOKED');
+  assert.equal(lobby.players.has(ids[1]!), true, 'no se lo expulsó');
+});
+
+test('expulsar a alguien que ya no existe da NOT_FOUND', () => {
+  const { lobby, hostId } = lobbyWith('host');
+  const res = lobby.kick(hostId, 'fantasma', T0);
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'NOT_FOUND');
 });
 
 // ---------------------------------------------------------------------------
@@ -150,9 +213,8 @@ test('desconectarse saca de la cola de búsqueda', () => {
 // ---------------------------------------------------------------------------
 
 function battleReady() {
-  const { lobby, ids } = lobbyWith('rival-a', 'rival-b', 'juez-1', 'juez-2');
-  lobby.startSearching(ids[0]!);
-  lobby.startSearching(ids[1]!);
+  const { lobby, ids, hostId } = lobbyWith('host', 'rival-a', 'rival-b', 'juez-1', 'juez-2');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
   lobby.tick(T0);
   const start = T0 + config.prepMs;
   lobby.tick(start);
@@ -170,7 +232,7 @@ test('sólo se aceptan los montos de la whitelist', () => {
 
 test('un juicio válido mueve el aura del contrincante correcto', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  const res = lobby.judge(battleId, ids[2]!, ids[0]!, 99_999, start + 10);
+  const res = lobby.judge(battleId, ids[3]!, ids[1]!, 99_999, start + 10);
   assert.equal(res.ok, true);
   assert.equal(lobby.current!.auraA, 99_999);
   assert.equal(lobby.current!.auraB, 0);
@@ -178,40 +240,39 @@ test('un juicio válido mueve el aura del contrincante correcto', () => {
 
 test('los contrincantes no pueden juzgar su propia batalla', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  const propio = lobby.judge(battleId, ids[0]!, ids[0]!, 99_999, start + 10);
+  const propio = lobby.judge(battleId, ids[1]!, ids[1]!, 99_999, start + 10);
   assert.equal(propio.ok, false);
   assert.equal(propio.error, 'CONTESTANT_CANNOT_JUDGE');
 
-  const alRival = lobby.judge(battleId, ids[0]!, ids[1]!, -99_999, start + 10);
+  const alRival = lobby.judge(battleId, ids[1]!, ids[2]!, -99_999, start + 10);
   assert.equal(alRival.ok, false);
   assert.equal(lobby.current!.auraA, 0);
   assert.equal(lobby.current!.auraB, 0);
 });
 
 test('no se puede juzgar antes de que la batalla arranque', () => {
-  const { lobby, ids } = lobbyWith('a', 'b', 'juez');
-  lobby.startSearching(ids[0]!);
-  lobby.startSearching(ids[1]!);
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b', 'juez');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
   lobby.tick(T0);
 
-  const res = lobby.judge(lobby.current!.id, ids[2]!, ids[0]!, 25_000, T0 + 1000);
+  const res = lobby.judge(lobby.current!.id, ids[3]!, ids[1]!, 25_000, T0 + 1000);
   assert.equal(res.ok, false);
   assert.equal(res.error, 'BATTLE_NOT_ACTIVE');
 });
 
 test('el cooldown frena los juicios seguidos del mismo juez', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  assert.equal(lobby.judge(battleId, ids[2]!, ids[0]!, 25_000, start + 10).ok, true);
+  assert.equal(lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, start + 10).ok, true);
 
-  const rapido = lobby.judge(battleId, ids[2]!, ids[0]!, 25_000, start + 20);
+  const rapido = lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, start + 20);
   assert.equal(rapido.ok, false);
   assert.equal(rapido.error, 'COOLDOWN');
 
-  const luego = lobby.judge(battleId, ids[2]!, ids[0]!, 25_000, start + 10 + config.judgmentCooldownMs);
+  const luego = lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, start + 10 + config.judgmentCooldownMs);
   assert.equal(luego.ok, true);
 
   // Otro juez no comparte el cooldown.
-  assert.equal(lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, start + 20).ok, true);
+  assert.equal(lobby.judge(battleId, ids[4]!, ids[2]!, 25_000, start + 20).ok, true);
 });
 
 test('cada juez tiene un presupuesto de juicios por batalla', () => {
@@ -222,12 +283,12 @@ test('cada juez tiene un presupuesto de juicios por batalla', () => {
   let at = start;
   for (let i = 0; i < max; i++) {
     at += config.judgmentCooldownMs;
-    const res = lobby.judge(battleId, ids[2]!, ids[0]!, 25_000, at);
+    const res = lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, at);
     assert.equal(res.ok, true, `juicio ${i + 1} debería pasar`);
   }
 
   at += config.judgmentCooldownMs;
-  const extra = lobby.judge(battleId, ids[2]!, ids[0]!, 25_000, at);
+  const extra = lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, at);
   assert.equal(extra.ok, false);
   assert.equal(extra.error, 'NO_JUDGMENTS_LEFT');
   assert.equal(extra.judgmentsLeft, 0);
@@ -235,14 +296,14 @@ test('cada juez tiene un presupuesto de juicios por batalla', () => {
 
 test('un juicio a un objetivo que no está en la batalla se rechaza', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  const res = lobby.judge(battleId, ids[2]!, ids[3]!, 25_000, start + 10);
+  const res = lobby.judge(battleId, ids[3]!, ids[4]!, 25_000, start + 10);
   assert.equal(res.ok, false);
   assert.equal(res.error, 'INVALID_TARGET');
 });
 
 test('juzgar con un battleId que no es el actual se rechaza', () => {
   const { lobby, ids, start } = battleReady();
-  const res = lobby.judge('otra-batalla', ids[2]!, ids[0]!, 25_000, start + 10);
+  const res = lobby.judge('otra-batalla', ids[3]!, ids[1]!, 25_000, start + 10);
   assert.equal(res.ok, false);
 });
 
@@ -252,18 +313,18 @@ test('juzgar con un battleId que no es el actual se rechaza', () => {
 
 test('al terminar se define ganador y el aura pasa al leaderboard', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  lobby.judge(battleId, ids[2]!, ids[0]!, 99_999, start + 10);
-  lobby.judge(battleId, ids[3]!, ids[1]!, 25_000, start + 10);
+  lobby.judge(battleId, ids[3]!, ids[1]!, 99_999, start + 10);
+  lobby.judge(battleId, ids[4]!, ids[2]!, 25_000, start + 10);
 
   const events = lobby.tick(start + config.battleMs);
   assert.ok(events.some((e) => e.type === 'finished'));
 
   const finished = lobby.lastResult!;
   assert.equal(finished.status, 'FINISHED');
-  assert.equal(finished.winnerId, ids[0]);
+  assert.equal(finished.winnerId, ids[1]);
 
-  const a = lobby.players.get(ids[0]!)!;
-  const b = lobby.players.get(ids[1]!)!;
+  const a = lobby.players.get(ids[1]!)!;
+  const b = lobby.players.get(ids[2]!)!;
   assert.equal(a.aura, 99_999);
   assert.equal(a.wins, 1);
   assert.equal(a.battles, 1);
@@ -273,11 +334,11 @@ test('al terminar se define ganador y el aura pasa al leaderboard', () => {
 
 test('el aura negativa se arrastra al leaderboard', () => {
   const { lobby, ids, start, battleId } = battleReady();
-  lobby.judge(battleId, ids[2]!, ids[0]!, -99_999, start + 10);
+  lobby.judge(battleId, ids[3]!, ids[1]!, -99_999, start + 10);
 
   lobby.tick(start + config.battleMs);
-  assert.equal(lobby.players.get(ids[0]!)!.aura, -99_999);
-  assert.equal(lobby.lastResult!.winnerId, ids[1], 'gana el que quedó en cero');
+  assert.equal(lobby.players.get(ids[1]!)!.aura, -99_999);
+  assert.equal(lobby.lastResult!.winnerId, ids[2], 'gana el que quedó en cero');
 });
 
 test('empate: nadie gana y ambos suman un empate', () => {
@@ -285,8 +346,8 @@ test('empate: nadie gana y ambos suman un empate', () => {
   lobby.tick(start + config.battleMs);
 
   assert.equal(lobby.lastResult!.winnerId, null);
-  assert.equal(lobby.players.get(ids[0]!)!.draws, 1);
   assert.equal(lobby.players.get(ids[1]!)!.draws, 1);
+  assert.equal(lobby.players.get(ids[2]!)!.draws, 1);
 });
 
 test('el resultado se archiva al historial después de RESULT_MS', () => {
@@ -302,9 +363,8 @@ test('el resultado se archiva al historial después de RESULT_MS', () => {
 });
 
 test('un tick muy atrasado resuelve todas las transiciones sin romperse', () => {
-  const { lobby, ids } = lobbyWith('a', 'b');
-  lobby.startSearching(ids[0]!);
-  lobby.startSearching(ids[1]!);
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
   lobby.tick(T0);
 
   // El proceso "se congeló" una hora.
@@ -313,7 +373,7 @@ test('un tick muy atrasado resuelve todas las transiciones sin romperse', () => 
   lobby.tick(muyDespues + 1);
   lobby.tick(muyDespues + 2);
 
-  assert.equal(lobby.players.get(ids[0]!)!.battles <= 1, true);
+  assert.equal(lobby.players.get(ids[1]!)!.battles <= 1, true);
   assert.doesNotThrow(() => lobby.toStateDTO(muyDespues));
 });
 
@@ -329,7 +389,7 @@ test('el leaderboard viene ordenado por aura descendente', () => {
 
   const state = lobby.toStateDTO(T0);
   assert.deepEqual(
-    state.players.map((p) => p.id),
+    state.players!.map((p) => p.id),
     [ids[1], ids[0], ids[2]],
   );
   assert.equal(state.onlineCount, 3);
@@ -338,18 +398,18 @@ test('el leaderboard viene ordenado por aura descendente', () => {
 test('toYouDTO refleja el rol del jugador en la batalla actual', () => {
   const { lobby, ids, start } = battleReady();
 
-  const contrincante = lobby.toYouDTO(ids[0]!);
+  const contrincante = lobby.toYouDTO(ids[1]!);
   assert.equal(contrincante.canJudge, false);
   assert.equal(contrincante.fightingBattleId, lobby.current!.id);
   assert.equal(contrincante.judgmentsLeft, 0);
 
-  const juez = lobby.toYouDTO(ids[2]!);
+  const juez = lobby.toYouDTO(ids[3]!);
   assert.equal(juez.canJudge, true);
   assert.equal(juez.fightingBattleId, null);
   assert.equal(juez.judgmentsLeft, config.maxJudgmentsPerBattle || null);
 
-  lobby.judge(lobby.current!.id, ids[2]!, ids[0]!, 25_000, start + 10);
-  assert.equal(lobby.toYouDTO(ids[2]!).judgmentsLeft, (config.maxJudgmentsPerBattle || 1) - 1);
+  lobby.judge(lobby.current!.id, ids[3]!, ids[1]!, 25_000, start + 10);
+  assert.equal(lobby.toYouDTO(ids[3]!).judgmentsLeft, (config.maxJudgmentsPerBattle || 1) - 1);
 });
 
 test('el token bucket limita y se rellena con el tiempo', () => {

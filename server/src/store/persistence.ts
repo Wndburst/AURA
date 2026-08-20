@@ -78,7 +78,6 @@ export function deserialize(snapshot: Snapshot): Lobby[] {
         draws: p.draws ?? 0,
         battles: p.battles ?? 0,
         sockets: new Set(),
-        searching: false,
         joinedAt: p.joinedAt ?? Date.now(),
         lastSeen: p.lastSeen ?? Date.now(),
       });

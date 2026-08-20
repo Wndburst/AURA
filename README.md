@@ -31,10 +31,10 @@ Para desarrollo con recarga en caliente (servidor en `:8080`, front en `:5173` c
 npm run dev
 ```
 
-Y para probarlo de verdad: abre `http://localhost:5173` en dos o tres pestañas —cada una en
-ventana de incógnito, porque la identidad se guarda en `localStorage`— crea un lobby en una,
-únete con el código en las otras, y aprieta **BATALLAR ☠️** en dos de ellas. La tercera es
-la que juzga.
+Y para probarlo de verdad: abre `http://localhost:5173` en tres o cuatro pestañas —cada una
+en ventana de incógnito, porque la identidad se guarda en `localStorage`— crea un lobby en la
+primera (esa queda de host) y únete con el código en las demás. Desde la pestaña del host, en
+la pestaña **Batallas**, elige a dos de los conectados y arma la batalla. Las demás juzgan.
 
 Desde el celular en la misma red: usa la IP de tu máquina (`ipconfig` en Windows,
 `ip addr` en Linux), por ejemplo `http://192.168.1.10:8080`.
@@ -102,12 +102,13 @@ y los contrincantes no pueden votar en su propia batalla.
 
 | | |
 |---|---|
-| **Matchmaking** | Cola FIFO. Con 2 personas buscando, nace una batalla. |
+| **Batallas** | Las arma el host a mano, eligiendo a los dos contrincantes de la lista de conectados. Sin cola automática. |
 | **Preparación** | 60 s antes de que empiece. Si ya hay una en curso, la nueva espera en cola y recibe su propio minuto cuando le toca. |
 | **Batalla** | 120 s. El público reparte `±25.000`, `±75.000`, `±99.999` de aura. |
 | **Límite de juicios** | 10 por juez por batalla, con 700 ms de cooldown. Configurable; `0` = ilimitado. |
 | **Resultado** | Gana quien acumuló más aura. El total —positivo o negativo— se suma al leaderboard. |
-| **Reconexión** | La identidad vive en `localStorage`: recargar, cambiar de red o cerrar la app no te quita el aura. |
+| **Moderación** | El host puede expulsar gente (no si está peleando) y cerrar el lobby para siempre. |
+| **Reconexión** | La identidad vive en `localStorage`: recargar, cambiar de red o cerrar la app no te quita el aura ni el rol de host. |
 
 El porqué del límite de juicios y el resto de las decisiones de diseño están en
 [AURA_FARM.md](AURA_FARM.md#33-juicio-votación).
@@ -117,7 +118,7 @@ El porqué del límite de juicios y el resto de las decisiones de diseño están
 ## Tests
 
 ```bash
-npm test           # 26 unitarios del dominio: matchmaking, fases, juicios, resultados
+npm test           # 34 unitarios del dominio: batallas del host, fases, juicios, kick, cierre
 npm run typecheck  # servidor y cliente
 ```
 
@@ -128,8 +129,8 @@ Los de integración necesitan un servidor levantado en el puerto 8099:
 npm run start:test
 
 # terminal 2
-npm run test:e2e          # 50 verificaciones sobre sockets reales
-npm run test:load 200     # 200 clientes en un lobby, mide latencia y tráfico
+npm run test:e2e          # 68 verificaciones sobre sockets reales
+npm run test:load 300     # 300 clientes en un lobby, mide latencia y tráfico
 ```
 
 La prueba de carga es la que importa antes de un evento grande — mide exactamente lo que se

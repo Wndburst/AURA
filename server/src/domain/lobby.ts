@@ -28,6 +28,26 @@ export type LobbyEvent =
   | { type: 'finished'; battle: Battle }
   | { type: 'archived'; battleId: BattleId };
 
+export type AdminError =
+  | 'NOT_HOST'
+  | 'NOT_FOUND'
+  | 'SAME_PLAYER'
+  | 'ALREADY_BOOKED'
+  | 'CANNOT_TARGET_SELF';
+
+export interface AdminResult<T = Record<string, never>> {
+  ok: boolean;
+  error?: AdminError;
+  message?: string;
+  data?: T;
+}
+
+export interface KickResult extends AdminResult {
+  /** Sockets del jugador expulsado, para que el gateway los desconecte. */
+  sockets?: string[];
+  nickname?: string;
+}
+
 export class Lobby {
   readonly id: string;
   readonly code: string;
@@ -37,8 +57,13 @@ export class Lobby {
   lastActivityAt: number;
 
   readonly players = new Map<PlayerId, Player>();
-  /** Cola FIFO de matchmaking. */
-  private searchQueue: PlayerId[] = [];
+  /**
+   * Jugadores expulsados: no pueden volver a entrar con ese mismo playerId.
+   * Un usuario decidido podría borrar su localStorage y conseguir un playerId
+   * nuevo — es la misma limitación de fondo que tiene cualquier identidad
+   * anónima. Alcanza para el caso real: cortar a alguien en el momento.
+   */
+  private readonly bannedIds = new Set<PlayerId>();
 
   /** Batalla SCHEDULED o ACTIVE. Sólo puede haber una. */
   current: Battle | null = null;
@@ -84,6 +109,14 @@ export class Lobby {
     this.stateDirty = true;
   }
 
+  isBanned(playerId: PlayerId): boolean {
+    return this.bannedIds.has(playerId);
+  }
+
+  isHostOf(playerId: PlayerId): boolean {
+    return this.hostId !== null && this.hostId === playerId;
+  }
+
   /**
    * Agrega o re-asocia un jugador. Si el `playerId` ya existía (reconexión o
    * segunda pestaña) conserva su aura, su historial y su puesto.
@@ -107,7 +140,6 @@ export class Lobby {
         draws: 0,
         battles: 0,
         sockets: new Set([socketId]),
-        searching: false,
         joinedAt: now,
         lastSeen: now,
       };
@@ -126,10 +158,6 @@ export class Lobby {
     if (!player) return;
     player.sockets.delete(socketId);
     player.lastSeen = now;
-    if (player.sockets.size === 0) {
-      // Se cayó: sale de la cola de búsqueda (no de una batalla ya agendada).
-      this.stopSearching(playerId);
-    }
     this.markRoster();
     this.touch(now);
   }
@@ -173,7 +201,7 @@ export class Lobby {
   }
 
   // -------------------------------------------------------------------------
-  // Matchmaking
+  // Batallas — las arma el host, a mano
   // -------------------------------------------------------------------------
 
   /** ¿Este jugador ya está comprometido en una batalla no terminada? */
@@ -188,100 +216,76 @@ export class Lobby {
     return queued?.id ?? null;
   }
 
-  startSearching(playerId: PlayerId): { ok: boolean; error?: string } {
-    const player = this.players.get(playerId);
-    if (!player) return { ok: false, error: 'No estás en el lobby.' };
-    if (this.isBooked(playerId)) return { ok: false, error: 'Ya tienes una batalla agendada.' };
-    if (player.searching) return { ok: true };
+  /**
+   * El host elige a los dos contrincantes a mano — nada de cola automática.
+   * Así se evita el problema real: alguien aprieta "batallar" desde el celular
+   * y nunca se presenta al frente del público, o al streamer se le llena la
+   * cola de gente que solo quería mirar.
+   */
+  createHostBattle(
+    hostId: PlayerId,
+    aId: PlayerId,
+    bId: PlayerId,
+    now = Date.now(),
+  ): AdminResult<{ battleId: BattleId }> {
+    if (!this.isHostOf(hostId)) {
+      return { ok: false, error: 'NOT_HOST', message: 'Sólo el organizador puede armar batallas.' };
+    }
+    if (aId === bId) {
+      return { ok: false, error: 'SAME_PLAYER', message: 'Elige a dos personas distintas.' };
+    }
+    const a = this.players.get(aId);
+    const b = this.players.get(bId);
+    if (!a || !b) {
+      return { ok: false, error: 'NOT_FOUND', message: 'Alguno de los dos ya no está en el lobby.' };
+    }
+    if (this.isBooked(aId) || this.isBooked(bId)) {
+      return { ok: false, error: 'ALREADY_BOOKED', message: 'Alguno de los dos ya tiene una batalla agendada.' };
+    }
 
-    player.searching = true;
-    this.searchQueue.push(playerId);
-    this.markRoster();
-    this.touch();
-    return { ok: true };
+    const battle = createBattle(this.id, { id: a.id, nickname: a.nickname }, { id: b.id, nickname: b.nickname }, now);
+    this.queue.push(battle);
+    this.markRoster(); // ambos pasan a "en batalla" en el listado
+    this.touch(now);
+    return { ok: true, data: { battleId: battle.id } };
   }
 
-  stopSearching(playerId: PlayerId): void {
-    const player = this.players.get(playerId);
-    if (player) player.searching = false;
-    const idx = this.searchQueue.indexOf(playerId);
-    if (idx !== -1) this.searchQueue.splice(idx, 1);
-    this.markRoster();
-  }
-
-  searchingCount(): number {
-    return this.searchQueue.length;
-  }
+  // -------------------------------------------------------------------------
+  // Moderación del host
+  // -------------------------------------------------------------------------
 
   /**
-   * Empareja de a dos por orden de llegada. Descarta de la cola a quien ya no
-   * esté disponible (se fue, se cayó o quedó comprometido en otra batalla).
+   * Saca a alguien del lobby y le impide volver a entrar con el mismo
+   * `playerId`. No se puede expulsar a quien está peleando ahora mismo: es
+   * más simple pedirle al host que espere a que termine su batalla que
+   * manejar el caso de una pelea que se corta a la mitad.
    */
-  private matchmake(now: number, events: LobbyEvent[]): void {
-    // Limpieza previa: sacar fantasmas de la cola.
-    this.searchQueue = this.searchQueue.filter((id) => {
-      const p = this.players.get(id);
-      if (!p || !p.searching) return false;
-      if (p.sockets.size === 0) {
-        p.searching = false;
-        return false;
-      }
-      if (this.isBooked(id)) {
-        p.searching = false;
-        return false;
-      }
-      return true;
-    });
-
-    while (this.searchQueue.length >= 2) {
-      const aId = this.searchQueue.shift()!;
-      const bId = this.searchQueue.shift()!;
-      const a = this.players.get(aId);
-      const b = this.players.get(bId);
-      if (!a || !b) continue;
-
-      a.searching = false;
-      b.searching = false;
-
-      const battle = createBattle(
-        this.id,
-        { id: a.id, nickname: a.nickname },
-        { id: b.id, nickname: b.nickname },
-        now,
-      );
-      this.queue.push(battle);
-      events.push({ type: 'matched', battle });
-      // Los dos dejaron de "buscar": eso se ve en la lista de jugadores.
-      this.markRoster();
+  kick(hostId: PlayerId, targetId: PlayerId, now = Date.now()): KickResult {
+    if (!this.isHostOf(hostId)) {
+      return { ok: false, error: 'NOT_HOST', message: 'Sólo el organizador puede expulsar gente.' };
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // Juicio
-  // -------------------------------------------------------------------------
-
-  judge(
-    battleId: BattleId,
-    judgeId: PlayerId,
-    targetId: PlayerId,
-    amount: number,
-    now = Date.now(),
-  ): JudgeResult {
-    const battle = this.current;
-    if (!battle || battle.id !== battleId) {
-      return { ok: false, error: 'BATTLE_NOT_ACTIVE', message: 'Esa batalla no está en curso.', judgmentsLeft: null };
+    if (targetId === hostId) {
+      return { ok: false, error: 'CANNOT_TARGET_SELF', message: 'No puedes expulsarte a ti mismo.' };
     }
-    const judge = this.players.get(judgeId);
-    if (!judge) {
-      return { ok: false, error: 'BATTLE_NOT_ACTIVE', message: 'No estás en el lobby.', judgmentsLeft: null };
+    const target = this.players.get(targetId);
+    if (!target) {
+      return { ok: false, error: 'NOT_FOUND', message: 'Esa persona ya no está en el lobby.' };
+    }
+    if (this.isBooked(targetId)) {
+      return {
+        ok: false,
+        error: 'ALREADY_BOOKED',
+        message: 'Está peleando ahora mismo — espera a que termine su batalla.',
+      };
     }
 
-    const result = applyJudgment(battle, judgeId, judge.nickname, targetId, amount, now);
-    if (result.ok) {
-      this.liveDirty = true;
-      this.touch(now);
-    }
-    return result;
+    const sockets = [...target.sockets];
+    const nickname = target.nickname;
+    this.players.delete(targetId);
+    this.bannedIds.add(targetId);
+    this.markRoster();
+    this.touch(now);
+    return { ok: true, sockets, nickname };
   }
 
   // -------------------------------------------------------------------------
@@ -295,8 +299,6 @@ export class Lobby {
   tick(now = Date.now()): LobbyEvent[] {
     const events: LobbyEvent[] = [];
 
-    this.matchmake(now, events);
-
     const battle = this.current;
     if (battle) {
       if (battle.status === 'SCHEDULED' && battle.startsAt !== null && now >= battle.startsAt) {
@@ -306,14 +308,12 @@ export class Lobby {
       } else if (battle.status === 'ACTIVE' && battle.endsAt !== null && now >= battle.endsAt) {
         finish(battle, now);
         this.settle(battle);
-        // El aura de la batalla acaba de moverse al leaderboard.
-        this.markRoster();
         // Libera el carril de inmediato: el resultado se muestra desde `lastResult`
         // mientras la siguiente batalla ya está en preparación.
         this.archiveLastResult(now, events);
         this.lastResult = battle;
         this.current = null;
-        this.stateDirty = true;
+        this.markRoster(); // los dos contrincantes dejan de estar "en batalla"
         events.push({ type: 'phase', battle });
         events.push({ type: 'finished', battle });
       }
@@ -343,6 +343,34 @@ export class Lobby {
     this.lastResult = null;
     this.stateDirty = true;
     events.push({ type: 'archived', battleId: done.id });
+  }
+
+  // -------------------------------------------------------------------------
+  // Juicio
+  // -------------------------------------------------------------------------
+
+  judge(
+    battleId: BattleId,
+    judgeId: PlayerId,
+    targetId: PlayerId,
+    amount: number,
+    now = Date.now(),
+  ): JudgeResult {
+    const battle = this.current;
+    if (!battle || battle.id !== battleId) {
+      return { ok: false, error: 'BATTLE_NOT_ACTIVE', message: 'Esa batalla no está en curso.', judgmentsLeft: null };
+    }
+    const judge = this.players.get(judgeId);
+    if (!judge) {
+      return { ok: false, error: 'BATTLE_NOT_ACTIVE', message: 'No estás en el lobby.', judgmentsLeft: null };
+    }
+
+    const result = applyJudgment(battle, judgeId, judge.nickname, targetId, amount, now);
+    if (result.ok) {
+      this.liveDirty = true;
+      this.touch(now);
+    }
+    return result;
   }
 
   /** Traspasa el aura de la batalla al leaderboard del lobby. */
@@ -380,7 +408,6 @@ export class Lobby {
       draws: p.draws,
       battles: p.battles,
       online: p.sockets.size > 0,
-      searching: p.searching,
       inBattle: this.isBooked(p.id),
       isHost: this.hostId === p.id,
     };
@@ -408,7 +435,6 @@ export class Lobby {
       serverTime: now,
       playerCount: this.players.size,
       onlineCount: this.onlineCount(),
-      searchingCount: this.searchQueue.length,
       players,
       current: this.current ? toBattleDTO(this.current, { includeFeed: true }) : null,
       lastResult: this.lastResult ? toBattleDTO(this.lastResult, { includeFeed: true }) : null,
@@ -428,7 +454,7 @@ export class Lobby {
       nickname: p?.nickname ?? '',
       lobbyId: this.id,
       aura: p?.aura ?? 0,
-      searching: p?.searching ?? false,
+      isHost: this.hostId === playerId,
       fightingBattleId: fighting,
       judgmentsLeft: battle && !amContestant ? judgmentsLeftFor(battle, playerId) : 0,
       canJudge: Boolean(battle && battle.status === 'ACTIVE' && !amContestant),

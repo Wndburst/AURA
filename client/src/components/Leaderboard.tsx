@@ -64,7 +64,6 @@ export function Leaderboard() {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{player.nickname}</span>
               {player.id === me && <span className="pill pill--you">tú</span>}
               {player.isHost && <span className="pill pill--host">host</span>}
-              {player.searching && <span className="pill pill--search">buscando</span>}
               {player.inBattle && <span className="pill pill--fight">en batalla</span>}
             </div>
             <div className="row__sub">{record(player)}</div>

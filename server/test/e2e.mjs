@@ -1,13 +1,13 @@
 /**
  * Prueba de humo end-to-end contra un servidor real.
  *
- *   PREP_MS=1500 BATTLE_MS=2500 RESULT_MS=800 PORT=8099 PERSISTENCE=off \
- *     node dist/index.js &
- *   node test/e2e.mjs
+ *   npm run start:test     (en otra terminal)
+ *   npm run test:e2e
  *
- * Levanta 5 clientes de socket.io: 2 pelean, 3 juzgan. Verifica el ciclo
- * completo — crear lobby, unirse, matchear, preparar, juzgar, resultar — y que
- * el aura llegue al leaderboard.
+ * Levanta varios clientes de socket.io: el host arma las batallas a mano (no
+ * hay cola automática), dos pelean, dos juzgan, uno molesta y lo expulsan.
+ * Verifica el ciclo completo — crear lobby, unirse, armar batalla, preparar,
+ * juzgar, resultar, expulsar, cerrar — y que el aura llegue al leaderboard.
  */
 import { io } from 'socket.io-client';
 
@@ -27,7 +27,7 @@ function check(label, condition, detail) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function connect(nickname) {
+function connect(nickname, playerId) {
   return new Promise((resolve, reject) => {
     const socket = io(URL, { transports: ['websocket'], reconnection: false, timeout: 5000 });
     const timer = setTimeout(() => reject(new Error(`timeout conectando ${nickname}`)), 6000);
@@ -39,7 +39,7 @@ function connect(nickname) {
 
     socket.on('connect', () => {
       clearTimeout(timer);
-      socket.emit('hello', { nickname }, (res) => {
+      socket.emit('hello', { playerId, nickname }, (res) => {
         socket.playerId = res.playerId;
         socket.nickname = nickname;
         socket.events = [];
@@ -47,6 +47,8 @@ function connect(nickname) {
         socket.live = null;
         socket.state = null;
         socket.you = null;
+        socket.kicked = null;
+        socket.closed = null;
         socket.on('lobby:state', (s) => {
           // Igual que el cliente real: el roster puede venir omitido.
           socket.state = s.players ? s : { ...s, players: socket.state?.players ?? [] };
@@ -60,6 +62,8 @@ function connect(nickname) {
           socket.events.push('finished');
           socket.finished = battle;
         });
+        socket.on('admin:kicked', (payload) => (socket.kicked = payload));
+        socket.on('lobby:closed', (payload) => (socket.closed = payload));
         resolve(socket);
       });
     });
@@ -92,54 +96,62 @@ async function main() {
   check('se crea el lobby', created.ok, created.error);
   check('el lobby trae código de 6', created.lobby?.code?.length === 6, created.lobby?.code);
   check('el nombre del lobby se respeta', created.lobby?.name === 'Plaza de Armas');
+  check('el creador queda de host', created.you?.isHost === true);
 
   const code = created.lobby.code;
 
   console.log('\n· entrada de los demás');
-  const [fighterA, fighterB, judge1, judge2] = await Promise.all([
+  const [fighterA, fighterB, judge1, judge2, molestoso] = await Promise.all([
     connect('rival-uno'),
     connect('rival-dos'),
     connect('juez-uno'),
     connect('juez-dos'),
+    connect('molestoso'),
   ]);
 
-  for (const socket of [fighterA, fighterB, judge1, judge2]) {
+  for (const socket of [fighterA, fighterB, judge1, judge2, molestoso]) {
     const res = await ask(socket, 'lobby:join', { code, nickname: socket.nickname });
     check(`${socket.nickname} entra`, res.ok, res.error);
+    check(`${socket.nickname} no es host`, res.you?.isHost === false);
   }
 
   const bad = await ask(judge1, 'lobby:join', { code: 'ZZZZZZ', nickname: 'x' });
   check('un código inexistente se rechaza', !bad.ok && bad.code === 'NOT_FOUND', JSON.stringify(bad));
 
-  await waitFor(() => host.state?.playerCount === 5, 3000, '5 jugadores');
-  check('el lobby ve a los 5', host.state.playerCount === 5, String(host.state?.playerCount));
-  check('los 5 figuran en línea', host.state.onlineCount === 5);
+  await waitFor(() => host.state?.playerCount === 6, 3000, '6 jugadores');
+  check('el lobby ve a los 6', host.state.playerCount === 6, String(host.state?.playerCount));
+  check('los 6 figuran en línea', host.state.onlineCount === 6);
 
-  console.log('\n· matchmaking');
-  const searchA = await ask(fighterA, 'battle:search');
-  check('el primero entra a la cola', searchA.ok, searchA.error);
-  await sleep(400);
-  check('con uno solo no hay batalla', host.state.current === null);
+  console.log('\n· el host arma la primera batalla');
+  const noHost = await ask(fighterA, 'battle:create', { aId: fighterA.playerId, bId: fighterB.playerId });
+  check('quien no es host no puede armar batallas', !noHost.ok && noHost.code === 'NOT_HOST', JSON.stringify(noHost));
 
-  const searchB = await ask(fighterB, 'battle:search');
-  check('el segundo entra a la cola', searchB.ok, searchB.error);
+  const samePlayer = await ask(host, 'battle:create', { aId: fighterA.playerId, bId: fighterA.playerId });
+  check('no se puede armar una batalla contra uno mismo',
+    !samePlayer.ok && samePlayer.code === 'SAME_PLAYER', JSON.stringify(samePlayer));
+
+  const ghost = await ask(host, 'battle:create', { aId: fighterA.playerId, bId: 'fantasma' });
+  check('no se puede armar una batalla con alguien que no existe',
+    !ghost.ok && ghost.code === 'NOT_FOUND', JSON.stringify(ghost));
+
+  const madeUp = await ask(host, 'battle:create', { aId: fighterA.playerId, bId: fighterB.playerId });
+  check('el host arma la batalla', madeUp.ok, JSON.stringify(madeUp));
 
   await waitFor(() => host.state?.current, 3000, 'batalla creada');
-  check('se creó la batalla', Boolean(host.state.current));
   check('queda agendada, no activa', host.state.current.status === 'SCHEDULED', host.state.current.status);
-  check('nadie sigue buscando', host.state.searchingCount === 0);
 
   const battleId = host.state.current.id;
   const contestants = [host.state.current.a.id, host.state.current.b.id];
-  check('los contrincantes son los que buscaban',
+  check('los contrincantes son los elegidos por el host',
     contestants.includes(fighterA.playerId) && contestants.includes(fighterB.playerId));
+
+  const busy = await ask(host, 'battle:create', { aId: fighterA.playerId, bId: judge1.playerId });
+  check('no se puede armar otra batalla con alguien ya comprometido',
+    !busy.ok && busy.code === 'ALREADY_BOOKED', JSON.stringify(busy));
 
   console.log('\n· durante la preparación');
   const early = await ask(judge1, 'battle:judge', { battleId, targetId: fighterA.playerId, amount: 25000 });
   check('no se puede juzgar antes de empezar', !early.ok && early.code === 'BATTLE_NOT_ACTIVE', JSON.stringify(early));
-
-  const rebusca = await ask(fighterA, 'battle:search');
-  check('un peleador agendado no puede re-encolarse', !rebusca.ok, JSON.stringify(rebusca));
 
   await waitFor(() => host.state?.current?.status === 'ACTIVE', 5000, 'batalla activa');
   check('la batalla arranca sola', host.state.current.status === 'ACTIVE');
@@ -201,29 +213,62 @@ async function main() {
   check('el carril queda libre', host.state.current === null && host.state.lastResult === null);
 
   console.log('\n· cola de batallas');
-  await Promise.all([ask(fighterA, 'battle:search'), ask(fighterB, 'battle:search')]);
-  await Promise.all([ask(judge1, 'battle:search'), ask(judge2, 'battle:search')]);
+  await ask(host, 'battle:create', { aId: judge1.playerId, bId: judge2.playerId });
+  await sleep(200);
+  await ask(host, 'battle:create', { aId: fighterA.playerId, bId: fighterB.playerId });
   await waitFor(() => host.state?.current && host.state?.queue?.length === 1, 4000, 'segunda batalla en cola');
   check('la segunda batalla espera en cola', host.state.queue.length === 1);
   check('la que espera no arrancó su reloj', host.state.queue[0].status === 'QUEUED', host.state.queue[0]?.status);
 
+  console.log('\n· moderación: expulsar');
+  const notHostKick = await ask(fighterA, 'admin:kick', { playerId: molestoso.playerId });
+  check('quien no es host no puede expulsar', !notHostKick.ok && notHostKick.code === 'NOT_HOST', JSON.stringify(notHostKick));
+
+  const selfKick = await ask(host, 'admin:kick', { playerId: host.playerId });
+  check('el host no puede expulsarse a sí mismo', !selfKick.ok && selfKick.code === 'CANNOT_TARGET_SELF');
+
+  const bookedKick = await ask(host, 'admin:kick', { playerId: judge1.playerId });
+  check('no se puede expulsar a quien está peleando ahora mismo',
+    !bookedKick.ok && bookedKick.code === 'ALREADY_BOOKED', JSON.stringify(bookedKick));
+
+  const kick = await ask(host, 'admin:kick', { playerId: molestoso.playerId });
+  check('el host expulsa a alguien libre', kick.ok, JSON.stringify(kick));
+  check('el expulsado recibe el aviso antes de caer', await waitFor(() => molestoso.kicked !== null, 2000, 'admin:kicked').catch(() => false));
+
+  await waitFor(() => !host.state.players.some((p) => p.id === molestoso.playerId), 3000, 'desaparece del roster');
+  check('el expulsado desaparece del leaderboard', !host.state.players.some((p) => p.id === molestoso.playerId));
+
+  // El socket de "molestoso" ya lo desconectó el kick del lado del servidor —
+  // reusarlo se queda esperando un ack que nunca llega. Hay que abrir una
+  // conexión nueva con la misma identidad, igual que en la reconexión de abajo.
+  const molestosoId = molestoso.playerId;
+  const molestosoBack = io(URL, { transports: ['websocket'], reconnection: false });
+  await new Promise((resolve) => molestosoBack.on('connect', resolve));
+  await ask(molestosoBack, 'hello', { playerId: molestosoId, nickname: 'molestoso' });
+  const rejoin = await ask(molestosoBack, 'lobby:join', { code, nickname: 'molestoso' });
+  check('el expulsado no puede volver a entrar', !rejoin.ok && rejoin.code === 'BANNED', JSON.stringify(rejoin));
+  molestosoBack.disconnect();
+
   console.log('\n· reconexión');
-  const auraAntes = host.state.players.find((p) => p.id === judge1.playerId).aura;
-  const idJuez = judge1.playerId;
-  judge1.disconnect();
+  // El host no está peleando en este punto: es un buen candidato para probar
+  // que la identidad (y el rol) sobreviven a una caída de conexión.
+  const auraAntes = host.state.players.find((p) => p.id === host.playerId)?.aura ?? 0;
+  const idHost = host.playerId;
+  host.disconnect();
   await sleep(500);
 
   const revived = io(URL, { transports: ['websocket'], reconnection: false });
   await new Promise((resolve) => revived.on('connect', resolve));
-  await ask(revived, 'hello', { playerId: idJuez, nickname: 'juez-uno' });
-  const back = await ask(revived, 'lobby:join', { code, nickname: 'juez-uno' });
-  check('vuelve a entrar con la misma identidad', back.ok && back.playerId === idJuez);
-  check('conserva su aura', back.lobby.players.find((p) => p.id === idJuez).aura === auraAntes);
+  await ask(revived, 'hello', { playerId: idHost, nickname: 'el-host' });
+  const back = await ask(revived, 'lobby:join', { code, nickname: 'el-host' });
+  check('vuelve a entrar con la misma identidad', back.ok && back.playerId === idHost);
+  check('conserva su aura', back.lobby.players.find((p) => p.id === idHost).aura === auraAntes);
+  check('sigue siendo el host', back.you.isHost === true);
   check('no se duplicó en el lobby',
-    back.lobby.players.filter((p) => p.id === idJuez).length === 1);
+    back.lobby.players.filter((p) => p.id === idHost).length === 1);
   check('el nickname no se duplicó con sufijo',
-    back.lobby.players.find((p) => p.id === idJuez).nickname === 'juez-uno',
-    back.lobby.players.find((p) => p.id === idJuez)?.nickname);
+    back.lobby.players.find((p) => p.id === idHost).nickname === 'el-host',
+    back.lobby.players.find((p) => p.id === idHost)?.nickname);
 
   console.log('\n· API HTTP');
   const health = await fetch(`${URL}/api/health`).then((r) => r.json());
@@ -235,7 +280,19 @@ async function main() {
   const stats = await fetch(`${URL}/api/stats`).then((r) => r.json());
   check('/api/stats reporta el lobby', stats.ok && stats.lobbies >= 1);
 
-  for (const socket of [host, fighterA, fighterB, judge2, revived]) socket.disconnect();
+  console.log('\n· cerrar el lobby');
+  const notHostClose = await ask(fighterA, 'admin:close');
+  check('quien no es host no puede cerrar el lobby', !notHostClose.ok && notHostClose.code === 'NOT_HOST');
+
+  const closeWait = waitFor(() => fighterB.closed !== null, 3000, 'lobby:closed').catch(() => false);
+  const closeRes = await ask(revived, 'admin:close');
+  check('el host cierra el lobby', closeRes.ok, JSON.stringify(closeRes));
+  check('el resto del lobby recibe el aviso de cierre', await closeWait);
+
+  const afterClose = await fetch(`${URL}/api/lobbies/${code}`);
+  check('el código deja de existir después de cerrar', afterClose.status === 404);
+
+  for (const socket of [fighterA, fighterB, judge1, judge2, revived]) socket.disconnect();
   await sleep(200);
 
   console.log(`\n${failures.length === 0 ? '✅' : '❌'} ${checks - failures.length}/${checks} verificaciones\n`);

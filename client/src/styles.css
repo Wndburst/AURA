@@ -352,23 +352,6 @@ button:disabled {
   font-size: 1rem;
 }
 
-.btn--searching {
-  --btn-bg: linear-gradient(135deg, #2a1f36, #3a1428);
-  --btn-line: var(--blood);
-  --btn-fg: var(--blood);
-  animation: hunt 1.1s ease-in-out infinite;
-}
-
-@keyframes hunt {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgb(255 45 85 / 45%);
-  }
-  60% {
-    box-shadow: 0 0 0 16px rgb(255 45 85 / 0%);
-  }
-}
-
 .divider {
   display: flex;
   align-items: center;
@@ -557,6 +540,11 @@ button:disabled {
   gap: 10px;
 }
 
+/* Sin barra inferior fija (el host arma las batallas, no hay botón flotante). */
+.content--no-bar {
+  padding-bottom: calc(28px + var(--safe-bottom));
+}
+
 .section-title {
   display: flex;
   align-items: baseline;
@@ -680,12 +668,6 @@ button:disabled {
   color: var(--gold);
 }
 
-.pill--search {
-  background: rgb(255 45 85 / 16%);
-  color: var(--blood);
-  animation: blink 1.4s steps(2) infinite;
-}
-
 .pill--fight {
   background: rgb(176 38 255 / 18%);
   color: var(--toxic-soft);
@@ -782,26 +764,113 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Barra inferior
+   Moderación del host: kick, panel de armado de batallas
    ========================================================================== */
 
-.bottombar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
-  padding: 12px 14px calc(12px + var(--safe-bottom));
-  background: linear-gradient(to top, var(--void) 55%, rgb(8 7 10 / 0%));
+.kick-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 99px;
+  border: 1px solid rgb(255 45 85 / 30%);
+  background: rgb(255 45 85 / 8%);
+  font-size: 1rem;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.kick-btn:hover:not(:disabled) {
+  background: rgb(255 45 85 / 22%);
+}
+
+.kick-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.admin-panel {
+  padding: 14px;
+  margin-bottom: 4px;
+  border-radius: var(--radius);
+  border: 1px solid var(--toxic);
+  background: linear-gradient(150deg, rgb(176 38 255 / 14%), var(--panel) 65%);
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.admin-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--display);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.admin-panel__hint {
+  font-family: var(--body);
+  font-size: 0.74rem;
+  color: var(--ink-dim);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.picker-grid {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.bottombar__note {
-  text-align: center;
-  font-size: 0.76rem;
-  color: var(--ink-faint);
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 99px;
+  border: 1px solid var(--line-hot);
+  background: var(--panel-2);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.picker-chip:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.picker-chip--a {
+  border-color: var(--ice);
+  background: rgb(56 208 255 / 16%);
+  color: var(--ice);
+}
+
+.picker-chip--b {
+  border-color: var(--blood);
+  background: rgb(255 45 85 / 16%);
+  color: #ff8fa5;
+}
+
+.picker-chip__tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--void);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.picker-chip--a .picker-chip__tag {
+  background: var(--ice);
+}
+
+.picker-chip--b .picker-chip__tag {
+  background: var(--blood);
 }
 
 /* ==========================================================================
@@ -1361,12 +1430,6 @@ button:disabled {
     border-left: 1px solid var(--line);
     border-right: 1px solid var(--line);
   }
-
-  .bottombar {
-    max-width: 620px;
-    margin: 0 auto;
-  }
-
 }
 
 @media (prefers-reduced-motion: reduce) {

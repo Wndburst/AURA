@@ -72,13 +72,21 @@ class LobbyStore {
     let removed = 0;
     for (const lobby of [...this.byId.values()]) {
       if (lobby.isEmptyAndStale(now)) {
-        this.byId.delete(lobby.id);
-        this.byCode.delete(lobby.code);
+        this.remove(lobby.id);
         removed++;
       }
     }
-    if (removed > 0) this.markDirty();
     return removed;
+  }
+
+  /** Cierre explícito por el host: libera el código de una para siempre. */
+  remove(id: string): boolean {
+    const lobby = this.byId.get(id);
+    if (!lobby) return false;
+    this.byId.delete(id);
+    this.byCode.delete(lobby.code);
+    this.markDirty();
+    return true;
   }
 
   markDirty(): void {

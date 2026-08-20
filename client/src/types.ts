@@ -20,7 +20,6 @@ export interface PlayerDTO {
   draws: number;
   battles: number;
   online: boolean;
-  searching: boolean;
   inBattle: boolean;
   isHost: boolean;
 }
@@ -61,7 +60,6 @@ export interface LobbyStateDTO {
   serverTime: number;
   playerCount: number;
   onlineCount: number;
-  searchingCount: number;
   players: PlayerDTO[];
   current: BattleDTO | null;
   lastResult: BattleDTO | null;
@@ -82,7 +80,7 @@ export interface YouDTO {
   nickname: string;
   lobbyId: string | null;
   aura: number;
-  searching: boolean;
+  isHost: boolean;
   fightingBattleId: string | null;
   judgmentsLeft: number | null;
   canJudge: boolean;

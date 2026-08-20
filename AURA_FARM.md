@@ -7,14 +7,22 @@
 
 ## 1. Concepto
 
-Un grupo se junta en una comuna / región. Alguien crea un **lobby** y comparte el código.
-Todos entran con su **nickname**. Cualquiera puede apretar **BATALLAR ☠️** y quedar
-*buscando contrincante*. Cuando dos personas están buscando, el sistema los **matchea** y
-agenda una batalla.
+Un grupo se junta en una comuna / región, o un streamer arma esto con su comunidad. Alguien
+crea un **lobby** y comparte el código — esa persona queda de **organizador (host)**. Todos
+entran con su **nickname**.
+
+**El organizador arma las batallas a mano**, eligiendo a los dos contrincantes de la lista de
+conectados. No hay cola automática de "quiero pelear": en un evento en vivo, con público
+mirando, alguien que aprieta un botón desde el celular y nunca se presenta al frente arruina
+el show. El host llama a la gente, igual que en cualquier torneo presencial o en un segmento
+de stream.
 
 Durante la batalla, **todo el resto del lobby juzga**: aprieta botones de `+25.000` /
 `-99.999` AURA sobre uno u otro contrincante. Al terminar, el aura acumulada se suma al
 **leaderboard** del lobby.
+
+El host también puede **expulsar** a alguien del lobby (para hecklers o problemas) y
+**cerrar** el lobby cuando el evento termina.
 
 ---
 
@@ -24,9 +32,8 @@ Durante la batalla, **todo el resto del lobby juzga**: aprieta botones de `+25.0
 ┌─────────────────┐   ┌──────────────────────┐   ┌──────────────────────────────┐
 │ 1. NICKNAME     │──▶│ 2. CREAR / UNIRSE    │──▶│ 3. LOBBY                     │
 │ "¿cómo te       │   │  · CREAR LOBBY       │   │  · Leaderboard               │
-│  llaman?"       │   │  · UNIRSE (código)   │   │  · Conectados                │
-└─────────────────┘   └──────────────────────┘   │  · Batallas (cola/agenda)    │
-                                                 │  · [ BATALLAR ☠️ ]           │
+│  llaman?"       │   │  · UNIRSE (código)   │   │  · Conectados (+ kick, host) │
+└─────────────────┘   └──────────────────────┘   │  · Batallas (+ panel host)   │
                                                  └──────────┬───────────────────┘
                                                             │ hay batalla activa
                                                             ▼
@@ -56,10 +63,11 @@ Tres vistas (tabs):
 | Vista | Contenido |
 |---|---|
 | **LEADERBOARD** | Ranking por AURA acumulada. Incluye a quien ya se desconectó (el aura no se pierde). Muestra 🥇🥈🥉, W/L y batallas jugadas. |
-| **CONECTADOS** | Sólo usuarios online *ahora*. Marca quién está `BUSCANDO`, quién está `EN BATALLA` y quién es el host. |
-| **BATALLAS** | Batalla en curso + agendada + cola de próximas + historial de las últimas 20 con su resultado. |
+| **CONECTADOS** | Sólo usuarios online *ahora*. Marca quién está `EN BATALLA` y quién es el host. Si sos el host, cada fila trae un botón ⛔ para expulsar. |
+| **BATALLAS** | Batalla en curso + agendada + cola de próximas + historial de las últimas 20. Si sos el host, arriba de todo aparece el **panel del organizador**: tocás a dos personas conectadas y disponibles, y armás la batalla. |
 
-Barra inferior fija con el botón **BATALLAR ☠️** (toggle: buscar / cancelar búsqueda).
+Sin barra inferior fija: no hay ningún botón de auto-búsqueda — sólo el host decide quién
+pelea. En el pie de la pantalla, el host además tiene un enlace para **cerrar el lobby**.
 
 ### 2.4 Pantalla 4 — Arena
 - Aparece cuando hay batalla `SCHEDULED` o `ACTIVE`.
@@ -73,14 +81,26 @@ Barra inferior fija con el botón **BATALLAR ☠️** (toggle: buscar / cancelar
 
 ## 3. Reglas del juego
 
-### 3.1 Matchmaking
-1. Un usuario aprieta `BATALLAR ☠️` → entra a la **cola de búsqueda** (FIFO).
-2. Cuando hay ≥ 2 en cola, se sacan los dos primeros y se crea una **batalla**.
-3. Si **no hay batalla en curso ni agendada** → la batalla queda `SCHEDULED`, empieza en
-   **60 s**.
-4. Si **ya hay una batalla en curso o agendada** → la nueva queda `QUEUED`. Al terminar la
-   anterior, la siguiente pasa a `SCHEDULED` con sus 60 s de preparación.
-5. Salir del lobby o desconectarse te saca de la cola de búsqueda.
+### 3.1 Batallas armadas por el host
+
+No hay matchmaking automático. El **host** (quien creó el lobby, o a quien se le transfiere
+el rol si el host original se va) elige a los dos contrincantes desde la lista de conectados
+y crea la batalla:
+
+1. El host toca a dos personas **conectadas y disponibles** (no comprometidas ya en otra
+   batalla) y confirma.
+2. Si **no hay batalla en curso ni agendada** → la nueva batalla queda `SCHEDULED`, empieza
+   en **60 s** — tiempo para que los elegidos se acerquen al frente.
+3. Si **ya hay una batalla en curso o agendada** → la nueva queda `QUEUED`. Cuando le toca el
+   turno, pasa a `SCHEDULED` con sus propios 60 s de preparación.
+4. Nadie más que el host puede iniciar una batalla. Esto es deliberado: en un evento en vivo,
+   dejar que cualquiera se auto-encole genera gente que nunca se presenta al frente del
+   público — el host conoce a quién tiene enfrente y decide.
+
+> *Decisión de diseño:* la primera versión tenía un botón "BATALLAR ☠️" de auto-búsqueda,
+> como una cola de matchmaking. Se cambió por pedido explícito: para plaza o stream, el
+> organizador necesita **certeza** de quién va a pelear, no una cola anónima. Ver la
+> sección 3.5 para el resto de los poderes del host.
 
 ### 3.2 Ciclo de vida de una batalla
 
@@ -121,6 +141,19 @@ medido al conectar. Nadie puede adelantar su reloj para ganar tiempo.
   se puede terminar la batalla con menos aura de la que se entró — eso es aura farming real).
 - Se registran `wins` / `losses` / `battles`.
 
+### 3.5 Moderación del host
+
+| Acción | Regla |
+|---|---|
+| **Expulsar** | El host saca a alguien del lobby: se desconecta al toque y **no puede volver a entrar** con ese mismo `playerId`. No se puede expulsar a quien está peleando ahora mismo — el host tiene que esperar a que termine su batalla (evita manejar una pelea que se corta a la mitad). Tampoco se puede expulsar al propio host. |
+| **Cerrar lobby** | El host termina el lobby para siempre: todos reciben el aviso y se desconectan, y el código deja de existir — nadie más puede entrar ni con el link viejo. Es irreversible. |
+| **Transferencia de host** | Si el host se desconecta explícitamente (`salir del lobby`), el rol pasa automáticamente a otro jugador conectado. Si sólo se le cae la conexión, sigue siendo host — puede reconectarse y seguir organizando. |
+
+> *Sobre expulsar y volver a entrar:* la identidad es un UUID anónimo en `localStorage`. Alguien
+> decidido a volver podría borrar su navegador y conseguir un `playerId` nuevo — es la misma
+> limitación de fondo que tiene cualquier sistema de identidad anónima sin cuentas. Alcanza
+> para el caso real: cortar a alguien en el momento, frente al público.
+
 ---
 
 ## 4. Arquitectura
@@ -153,10 +186,10 @@ medido al conectar. Nadie puede adelantar su reloj para ganar tiempo.
 Lobby {
   id: uuid, code: 'ABC123', name, createdAt, hostId, lastActivityAt,
   players: Map<PlayerId, Player>,
-  searching: PlayerId[],          // cola FIFO de matchmaking
+  bannedIds: Set<PlayerId>,       // expulsados: no pueden volver a entrar
   current: Battle | null,         // SCHEDULED o ACTIVE
   lastResult: Battle | null,      // FINISHED, mientras se muestra el marcador
-  queue: Battle[],                // QUEUED
+  queue: Battle[],                // QUEUED — el host las arma, no hay cola automática
   history: Battle[]               // últimas 20 FINISHED
 }
 
@@ -177,11 +210,12 @@ Battle {
 |---|---|
 | `hello` | `{ playerId?, nickname }` → `{ playerId, serverTime, config }` |
 | `lobby:create` | `{ nickname, lobbyName? }` |
-| `lobby:join` | `{ code, nickname }` |
+| `lobby:join` | `{ code, nickname }` — rechaza con `BANNED` si el `playerId` fue expulsado de ese lobby |
 | `lobby:leave` | — |
 | `player:rename` | `{ nickname }` |
-| `battle:search` | — (entra a la cola) |
-| `battle:cancelSearch` | — |
+| `battle:create` | `{ aId, bId }` — **sólo el host**; arma una batalla entre esos dos jugadores |
+| `admin:kick` | `{ playerId }` — **sólo el host**; expulsa y desconecta |
+| `admin:close` | — **sólo el host**; cierra el lobby para siempre |
 | `battle:judge` | `{ battleId, targetId, amount }` |
 | `time:sync` | — → `{ serverTime }` |
 
@@ -195,7 +229,9 @@ Battle {
 | `battle:phase` | Cambio de fase (`SCHEDULED`/`ACTIVE`/`FINISHED`) — dispara animaciones. |
 | `battle:finished` | Resultado con ganador. |
 | `battle:archived` | La batalla pasó al historial; el carril quedó libre. |
-| `you` | Estado personal (`searching`, `judgmentsLeft`, …). |
+| `you` | Estado personal (`isHost`, `judgmentsLeft`, …). |
+| `admin:kicked` | Al expulsado, justo antes de que el servidor le corte la conexión. |
+| `lobby:closed` | A todo el lobby cuando el host lo cierra; el servidor desconecta a todos después. |
 | `error` | Errores no atados a un ACK. |
 
 #### Difusión coalescida
@@ -285,12 +321,13 @@ las variables del entorno real tienen prioridad sobre el archivo.
 - [x] Leaderboard ordenado por aura, con medallas y W/L.
 - [x] Lista de conectados en vivo con estados.
 - [x] Vista de próximas batallas + cola + historial.
-- [x] Botón `BATALLAR ☠️` → estado *buscando contrincante*.
-- [x] Match automático al haber 2 buscando.
+- [x] El host arma la batalla eligiendo a los dos contrincantes; nadie más puede.
 - [x] 1 minuto de preparación; encolado si ya hay una en curso.
 - [x] Arena de juicio con los 6 montos fijos.
 - [x] 2 minutos de batalla, resultado y actualización del leaderboard.
-- [x] Reconexión sin pérdida de estado.
+- [x] El host puede expulsar a alguien (no si está peleando); no puede volver a entrar.
+- [x] El host puede cerrar el lobby para siempre.
+- [x] Reconexión sin pérdida de estado, aura ni rol de host.
 - [x] Responsive: pensado para usarse **desde el celular, parados en una plaza**.
 
 ---
@@ -299,9 +336,10 @@ las variables del entorno real tienen prioridad sobre el archivo.
 
 | Verificación | Resultado |
 |---|---|
-| Unitarios del dominio (`npm test`) | 26/26 |
-| End-to-end sobre sockets reales (`npm run test:e2e`) | 50/50 |
-| Carga, 200 clientes en un lobby (`npm run test:load 200`) | p99 17 ms · 0 rechazos · 7,4 MB |
+| Unitarios del dominio (`npm test`) | 34/34 |
+| End-to-end sobre sockets reales (`npm run test:e2e`) | 68/68, incluye armado por host, kick y cierre |
+| Carga, 300 clientes en un lobby (`npm run test:load 300`) | p99 85 ms · 0 rechazos · ~22 MB |
 | Persistencia entre reinicios | verificada (aura, victorias y lobby recuperados) |
 | `npm run typecheck` (servidor y cliente) | limpio |
 | Imagen Docker | definida; **no construida en esta máquina** (el demonio de Docker no estaba disponible) |
+| Desplegado en producción | Oracle Cloud Always Free, VM.Standard.E2.1.Micro |

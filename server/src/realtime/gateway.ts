@@ -177,7 +177,12 @@ export function createGateway(httpServer: HttpServer): Server {
       const lobby = lobbyStore.find(ref);
       if (!lobby) return fail(ack, 'No existe ningún lobby con ese código.', 'NOT_FOUND');
 
-      const nick = sanitizeNickname(body.nickname ?? data(socket).nickname);
+      const d = data(socket);
+      if (d.playerId && lobby.isBanned(d.playerId)) {
+        return fail(ack, 'Te expulsaron de este lobby.', 'BANNED');
+      }
+
+      const nick = sanitizeNickname(body.nickname ?? d.nickname);
       if (!nick.ok) return fail(ack, nick.error ?? 'Nickname inválido.', 'BAD_NICKNAME');
 
       attach(socket, lobby, nick.value, ack);
@@ -213,32 +218,80 @@ export function createGateway(httpServer: HttpServer): Server {
       ack({ ok: true, nickname: d.nickname });
     });
 
-    socket.on('battle:search', (cb: unknown) => {
+    // Sólo el organizador arma las batallas: nada de cola automática. Evita
+    // el problema real de un evento en vivo — alguien aprieta "batallar" desde
+    // el celular y nunca se presenta al frente del público.
+    socket.on('battle:create', (payload: unknown, cb: unknown) => {
       const ack = ackFn(cb);
       if (!allow(socket, ack)) return;
 
       const lobby = currentLobby(socket);
       if (!lobby) return fail(ack, 'No estás en ningún lobby.', 'NO_LOBBY');
 
-      const result = lobby.startSearching(data(socket).playerId);
-      if (!result.ok) return fail(ack, result.error ?? 'No puedes buscar batalla ahora.', 'CANNOT_SEARCH');
+      const body = (payload ?? {}) as { aId?: unknown; bId?: unknown };
+      if (typeof body.aId !== 'string' || typeof body.bId !== 'string') {
+        return fail(ack, 'Elige a los dos contrincantes.', 'BAD_PAYLOAD');
+      }
 
-      // Matchear al toque: si ya había alguien esperando, la batalla nace ahora mismo.
+      const result = lobby.createHostBattle(data(socket).playerId, body.aId, body.bId);
+      if (!result.ok) return fail(ack, result.message ?? 'No se pudo crear la batalla.', result.error);
+
+      // La agenda al toque: si el carril estaba libre, arranca su preparación ya.
       dispatch(lobby, lobby.tick());
-      emitYou(lobby, data(socket).playerId);
-      ack({ ok: true });
+      ack({ ok: true, battleId: result.data?.battleId });
     });
 
-    socket.on('battle:cancelSearch', (cb: unknown) => {
+    socket.on('admin:kick', (payload: unknown, cb: unknown) => {
       const ack = ackFn(cb);
       if (!allow(socket, ack)) return;
 
       const lobby = currentLobby(socket);
       if (!lobby) return fail(ack, 'No estás en ningún lobby.', 'NO_LOBBY');
 
-      lobby.stopSearching(data(socket).playerId);
-      emitYou(lobby, data(socket).playerId);
+      const body = (payload ?? {}) as { playerId?: unknown };
+      if (typeof body.playerId !== 'string') return fail(ack, 'Falta a quién expulsar.', 'BAD_PAYLOAD');
+
+      const result = lobby.kick(data(socket).playerId, body.playerId);
+      if (!result.ok) return fail(ack, result.message ?? 'No se pudo expulsar.', result.error);
+
+      // Avisarle antes de cortarle la conexión, para que sepa por qué se fue.
+      for (const socketId of result.sockets ?? []) {
+        io.to(socketId).emit('admin:kicked', { message: 'El organizador te expulsó del lobby.' });
+        io.sockets.sockets.get(socketId)?.leave(room(lobby.id));
+        io.sockets.sockets.get(socketId)?.disconnect(true);
+      }
+      lobbyStore.markDirty();
+      ack({ ok: true, nickname: result.nickname });
+    });
+
+    socket.on('admin:close', (cb: unknown) => {
+      const ack = ackFn(cb);
+      if (!allow(socket, ack)) return;
+
+      const lobby = currentLobby(socket);
+      if (!lobby) return fail(ack, 'No estás en ningún lobby.', 'NO_LOBBY');
+      if (!lobby.isHostOf(data(socket).playerId)) {
+        return fail(ack, 'Sólo el organizador puede cerrar el lobby.', 'NOT_HOST');
+      }
+
+      io.to(room(lobby.id)).emit('lobby:closed', { message: 'El organizador cerró el lobby.' });
+      lastSent.delete(lobby.id);
+      lobbyStore.remove(lobby.id);
+      // El ack primero: si desconectamos al propio host antes de responderle,
+      // se puede perder la confirmación en el camino.
       ack({ ok: true });
+
+      // Se copia a un array antes de iterar: `.leave()` muta el mismo Set de
+      // socket.io que estaríamos recorriendo, y mejor no depender de que la
+      // iteración en vivo sobre un Set que se modifica a sí mismo se comporte
+      // bien en todas las versiones.
+      const socketIds = [...(io.sockets.adapter.rooms.get(room(lobby.id)) ?? [])];
+      for (const s of socketIds) {
+        const target = io.sockets.sockets.get(s);
+        target?.leave(room(lobby.id));
+        if (target) data(target).lobbyId = null;
+        target?.disconnect(true);
+      }
     });
 
     socket.on('battle:judge', (payload: unknown, cb: unknown) => {

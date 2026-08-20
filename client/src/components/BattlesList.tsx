@@ -1,6 +1,7 @@
-import { useStore } from '../store/useStore';
+import { useStore, selectIsHost } from '../store/useStore';
 import { useCountdown } from '../lib/hooks';
 import { formatAura, formatClock } from '../lib/format';
+import { AdminPanel } from './AdminPanel';
 import type { BattleDTO } from '../types';
 
 function BattleCard({
@@ -72,6 +73,7 @@ function BattleCard({
 export function BattlesList() {
   const lobby = useStore((s) => s.lobby);
   const openArena = useStore((s) => s.openArena);
+  const isHost = useStore(selectIsHost);
 
   if (!lobby) return null;
 
@@ -80,17 +82,22 @@ export function BattlesList() {
 
   if (nothing) {
     return (
-      <div className="empty">
-        <span className="empty__skull">⚔️</span>
-        Todavía no hay batallas.
-        <br />
-        Aprieta <strong>BATALLAR ☠️</strong> y espera contrincante.
-      </div>
+      <>
+        <AdminPanel />
+        <div className="empty">
+          <span className="empty__skull">⚔️</span>
+          Todavía no hay batallas.
+          <br />
+          {isHost ? 'Elige a los dos primeros contrincantes arriba.' : 'El organizador va a armar la primera.'}
+        </div>
+      </>
     );
   }
 
   return (
     <>
+      <AdminPanel />
+
       {current && (
         <>
           <div className="section-title">
