@@ -394,14 +394,27 @@ export function createGateway(httpServer: HttpServer): Server {
         });
         lobby.liveDirty = false;
       }
-
-      const feed = feedBuffer.get(lobby.id);
-      if (feed && feed.length > 0) {
-        io.to(room(lobby.id)).emit('battle:feed', feed);
-        feedBuffer.delete(lobby.id);
-      }
     }
   }, config.liveBroadcastMs);
+
+  /**
+   * El feed va en su propio ritmo y **recortado**: con 100 jueces apretando a la
+   * vez llegan cientos de juicios por segundo, y mandarlos todos a todos era el
+   * grueso del tráfico. La UI muestra 6 líneas, así que enviar más que las
+   * últimas `maxFeedBatch` es puro ancho de banda tirado — el aura ya viaja por
+   * `battle:live`, que es la fuente de verdad del marcador.
+   */
+  const feedTimer = setInterval(() => {
+    for (const [lobbyId, feed] of feedBuffer) {
+      if (feed.length === 0) {
+        feedBuffer.delete(lobbyId);
+        continue;
+      }
+      const batch = feed.length > config.maxFeedBatch ? feed.slice(-config.maxFeedBatch) : feed;
+      io.to(room(lobbyId)).emit('battle:feed', batch);
+      feedBuffer.delete(lobbyId);
+    }
+  }, config.feedBroadcastMs);
 
   const sweepTimer = setInterval(() => {
     for (const id of lastSent.keys()) {
@@ -413,11 +426,13 @@ export function createGateway(httpServer: HttpServer): Server {
 
   tickTimer.unref?.();
   liveTimer.unref?.();
+  feedTimer.unref?.();
   sweepTimer.unref?.();
 
   io.on('close', () => {
     clearInterval(tickTimer);
     clearInterval(liveTimer);
+    clearInterval(feedTimer);
     clearInterval(sweepTimer);
   });
 

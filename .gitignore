@@ -6,6 +6,7 @@ data/
 !.env.example
 !.env.fast
 !.env.test
+!.env.load
 *.log
 .DS_Store
 Thumbs.db

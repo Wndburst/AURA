@@ -204,30 +204,78 @@ un parlante, con la app abierta en el lobby. La arena está pensada para verse d
 
 ## Cuánto aguanta
 
-Medido en esta máquina (`npm run test:load 200`, 200 clientes reales en un solo lobby,
-todos juzgando a la vez):
+Medido con `npm run start:load` + `npm run test:load 300`: 300 clientes reales en un solo
+lobby, **todos juzgando a la máxima velocidad que permite el cooldown** — mucho más intenso
+que un evento de verdad.
 
 | Métrica | Resultado |
 |---|---|
-| Clientes simultáneos en un lobby | 200 |
-| Juicios procesados | 1.584 en 6,2 s, ninguno rechazado por error |
-| Latencia del ACK de juicio | p50 **7 ms** · p95 **16 ms** · p99 **17 ms** |
-| `lobby:state` recibidos por cliente | 3,9 en toda la prueba |
-| Tráfico total de snapshots | 7,4 MB |
+| Clientes simultáneos en un lobby | 300 |
+| Juicios procesados | 2.384, ninguno rechazado por error |
+| Latencia del ACK de juicio | p50 **33 ms** · p95 **66 ms** · p99 **67 ms** |
+| Memoria del proceso | **64 MB** en reposo · **96 MB** con los 300 encima |
+| Egreso total | 81 KB por persona en 7 s de juicio continuo |
 
-Ese último número es el que decide si la app sobrevive. La versión ingenua —difundir el
-estado completo en cada cambio— generaba **506 MB** en la misma prueba: la lista de
-jugadores se reenviaba entera a todo el mundo cada vez que alguien entraba, que es O(n²)
-justo en el peor momento, cuando llega la multitud.
+Esos 96 MB son la razón por la que **cualquier plan sirve**: la instancia más barata de
+cualquier proveedor trae 256 MB o más.
 
-La solución está en `flushLobby()` ([server/src/realtime/gateway.ts](server/src/realtime/gateway.ts)):
-nada emite al lobby directamente, todo marca el estado como sucio y un único bucle decide
-cuándo sale. Además la **lista de jugadores viaja aparte del resto del estado** (cada 1,5 s
-como máximo, y sólo si cambió), mientras que el aura en vivo va por un canal mínimo a 10 Hz.
+### Las tres cosas que hacen que aguante
 
-Con una instancia `shared-cpu-1x` de 512 MB deberías estar tranquilo hasta varios cientos de
-personas por lobby. Si esperas más de ~500 en un mismo lobby, sube `ROSTER_BROADCAST_MS` a
-`3000` y prueba con `npm run test:load` antes.
+1. **Difusión coalescida** (`flushLobby()` en
+   [server/src/realtime/gateway.ts](server/src/realtime/gateway.ts)). Nada emite al lobby
+   directamente: todo marca el estado como sucio y un único bucle decide cuándo sale. La
+   versión ingenua generaba **506 MB** donde ahora hay 7: la lista de jugadores se reenviaba
+   entera a todos cada vez que alguien entraba — O(n²) justo cuando llega la multitud.
+2. **El roster viaja aparte del resto del estado**, como máximo cada 1,5 s y sólo si cambió.
+   Es la parte pesada (~30 KB con 200 personas) y casi nunca cambia dos veces por segundo.
+3. **El feed va recortado** a los últimos `MAX_FEED_BATCH` (8) juicios por lote. La arena
+   muestra 6 líneas; mandar los cientos de juicios por segundo que llegan con mucha gente
+   era el grueso del tráfico. Recortarlo bajó el egreso de **202 KB a 37 KB por persona** y
+   la latencia p99 de 259 ms a 24 ms, sin ninguna diferencia visible en pantalla.
+
+### Si esperas muchísima gente
+
+Sube `ROSTER_BROADCAST_MS` a `3000` y baja `MAX_FEED_BATCH` a `4`, y vuelve a medir con
+`npm run test:load` antes del evento. Con una instancia compartida de 512 MB deberías estar
+tranquilo hasta varios cientos de personas **por lobby** (lobbies distintos son
+independientes entre sí y escalan sin problema).
+
+---
+
+## Cuánto cuesta
+
+La app pide tan poco (96 MB de RAM, CPU casi en cero) que el costo lo define el proveedor,
+no el consumo.
+
+> Los precios cambian seguido — verifica el actual antes de contratar. Estos son órdenes de
+> magnitud, no cotizaciones.
+
+| Opción | Costo aprox. | Comentario |
+|---|---|---|
+| **Oracle Cloud Always Free** | **US$0** | Gratis de verdad y para siempre. Máquina ARM muchísimo más grande de lo necesario. A cambio: es un VM pelado (instalas Docker y Caddy tú) y la disponibilidad del tier gratis varía por región. |
+| **Fly.io** | ~US$2-5/mes | Región **Santiago (`scl`)**. Ya está configurado en `fly.toml`: son tres comandos. La mejor relación esfuerzo/latencia. |
+| **Render Starter** | ~US$7/mes | El más simple de todos (Blueprint y listo). El plan Free duerme a los 15 min. |
+| **Railway** | ~US$5/mes | Detecta el Dockerfile solo. |
+| **VPS cualquiera** (Hostinger, Hetzner, DigitalOcean…) | ~US$5-8/mes | Funciona perfecto. Control total, algo más de trabajo de setup. |
+
+### ⚠️ Los hosting compartidos NO sirven
+
+Planes tipo **Hostinger "Unlimited"/"Premium"/"Business"**, o cualquier hosting con cPanel
+pensado para WordPress, son para **PHP**: ejecutan un script y lo matan al responder. Esta
+app necesita un **proceso Node corriendo permanentemente** con conexiones WebSocket abiertas.
+No es cosa de configurarlo distinto: el modelo de ejecución es otro.
+
+De Hostinger sirve su línea **VPS**, no la de hosting compartido.
+
+### Tráfico
+
+Un evento de 2 horas con ~100 personas conectadas mueve del orden de **1 a 3 GB**. Cualquier
+plan de los de arriba incluye bastante más que eso.
+
+### Lo que no está en el hosting
+
+Un dominio `.cl` cuesta unos **US$10-15 al año** en [NIC Chile](https://www.nic.cl). No es
+obligatorio: `tu-app.fly.dev` funciona igual.
 
 ---
 

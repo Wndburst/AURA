@@ -26,7 +26,7 @@ function connect(nickname) {
   return new Promise((resolve, reject) => {
     const socket = io(URL, { transports: ['websocket'], reconnection: false, timeout: 15000 });
     const timer = setTimeout(() => reject(new Error('timeout')), 20000);
-    socket.counts = { state: 0, roster: 0, live: 0, feed: 0, bytes: 0 };
+    socket.counts = { state: 0, roster: 0, live: 0, feed: 0, bytes: 0, allBytes: 0 };
     socket.on('connect_error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -41,6 +41,10 @@ function connect(nickname) {
       });
       socket.on('battle:live', () => socket.counts.live++);
       socket.on('battle:feed', (b) => (socket.counts.feed += b.length));
+      // Egreso total, no sólo los snapshots: es lo que se factura como tráfico.
+      socket.onAny((event, ...args) => {
+        socket.counts.allBytes += event.length + JSON.stringify(args).length;
+      });
       socket.emit('hello', { nickname }, (res) => {
         socket.playerId = res.playerId;
         resolve(socket);
@@ -138,7 +142,10 @@ async function main() {
   console.log(`  lobby:state recibidos  ${totalState} (${(totalState / crowd.length).toFixed(1)} por cliente)`);
   console.log(`  de esos, con roster    ${totalRoster} (${(totalRoster / crowd.length).toFixed(1)} por cliente)`);
   console.log(`  battle:live recibidos  ${totalLive} (${(totalLive / crowd.length).toFixed(1)} por cliente)`);
+  const totalAll = crowd.reduce((n, s) => n + s.counts.allBytes, 0);
   console.log(`  tráfico de snapshots   ${(totalBytes / 1024 / 1024).toFixed(2)} MB en total`);
+  console.log(`  EGRESO TOTAL           ${(totalAll / 1024 / 1024).toFixed(2)} MB en ${(elapsed / 1000).toFixed(0)} s` +
+    ` → ${(totalAll / crowd.length / 1024).toFixed(0)} KB por persona`);
 
   const stats = await fetch(`${URL}/api/stats`).then((r) => r.json());
   console.log(`  /api/stats             ${JSON.stringify(stats)}`);

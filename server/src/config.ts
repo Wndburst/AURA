@@ -63,6 +63,12 @@ export const config = {
   rosterBroadcastMs: num('ROSTER_BROADCAST_MS', 1500),
   liveBroadcastMs: num('LIVE_BROADCAST_MS', 100),
   feedBroadcastMs: num('FEED_BROADCAST_MS', 150),
+  /**
+   * Máximo de juicios por lote del feed. La arena muestra 6 líneas: mandar más
+   * es ancho de banda tirado, y con mucha gente juzgando el feed era el grueso
+   * del egreso.
+   */
+  maxFeedBatch: num('MAX_FEED_BATCH', 8),
 
   /** Rate limit genérico por socket (token bucket). */
   rateLimitTokens: num('RATE_LIMIT_TOKENS', 30),
