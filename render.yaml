@@ -1,0 +1,30 @@
+# Despliegue en Render — https://render.com
+# El plan free duerme tras 15 min sin tráfico: para un evento en vivo usa
+# starter o superior, o alguien va a tener que "despertar" la app.
+services:
+  - type: web
+    name: aura-farm
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    # El estado vive en memoria: una sola instancia. Ver DEPLOY.md.
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: PREP_MS
+        value: 60000
+      - key: BATTLE_MS
+        value: 120000
+      - key: MAX_JUDGMENTS_PER_BATTLE
+        value: 10
+      - key: DATA_DIR
+        value: /app/data
+    disk:
+      name: aura-data
+      mountPath: /app/data
+      sizeGB: 1

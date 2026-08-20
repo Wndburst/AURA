@@ -1,0 +1,13 @@
+{
+  "name": "☠️ AURA FARM ☠️",
+  "short_name": "AURA FARM",
+  "description": "Batallas de farmeo de aura en tiempo real.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#08070a",
+  "theme_color": "#08070a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
