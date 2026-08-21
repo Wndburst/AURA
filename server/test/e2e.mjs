@@ -101,15 +101,16 @@ async function main() {
   const code = created.lobby.code;
 
   console.log('\n· entrada de los demás');
-  const [fighterA, fighterB, judge1, judge2, molestoso] = await Promise.all([
+  const [fighterA, fighterB, judge1, judge2, molestoso, cronometro] = await Promise.all([
     connect('rival-uno'),
     connect('rival-dos'),
     connect('juez-uno'),
     connect('juez-dos'),
     connect('molestoso'),
+    connect('cronometro'),
   ]);
 
-  for (const socket of [fighterA, fighterB, judge1, judge2, molestoso]) {
+  for (const socket of [fighterA, fighterB, judge1, judge2, molestoso, cronometro]) {
     const res = await ask(socket, 'lobby:join', { code, nickname: socket.nickname });
     check(`${socket.nickname} entra`, res.ok, res.error);
     check(`${socket.nickname} no es host`, res.you?.isHost === false);
@@ -118,9 +119,9 @@ async function main() {
   const bad = await ask(judge1, 'lobby:join', { code: 'ZZZZZZ', nickname: 'x' });
   check('un código inexistente se rechaza', !bad.ok && bad.code === 'NOT_FOUND', JSON.stringify(bad));
 
-  await waitFor(() => host.state?.playerCount === 6, 3000, '6 jugadores');
-  check('el lobby ve a los 6', host.state.playerCount === 6, String(host.state?.playerCount));
-  check('los 6 figuran en línea', host.state.onlineCount === 6);
+  await waitFor(() => host.state?.playerCount === 7, 3000, '7 jugadores');
+  check('el lobby ve a los 7', host.state.playerCount === 7, String(host.state?.playerCount));
+  check('los 7 figuran en línea', host.state.onlineCount === 7);
 
   console.log('\n· el host arma la primera batalla');
   const noHost = await ask(fighterA, 'battle:create', { aId: fighterA.playerId, bId: fighterB.playerId });
@@ -220,6 +221,34 @@ async function main() {
   check('la segunda batalla espera en cola', host.state.queue.length === 1);
   check('la que espera no arrancó su reloj', host.state.queue[0].status === 'QUEUED', host.state.queue[0]?.status);
 
+  console.log('\n· tiempos configurables por batalla');
+  // Se piden tiempos absurdamente cortos a propósito: el servidor debería
+  // recortarlos al mínimo permitido, no aceptarlos ni rechazar la batalla.
+  const custom = await ask(host, 'battle:create', {
+    aId: cronometro.playerId,
+    bId: host.playerId,
+    prepMs: 1,
+    battleMs: 1,
+  });
+  check('se acepta una batalla con tiempos personalizados', custom.ok, JSON.stringify(custom));
+
+  await waitFor(
+    () => [host.state?.current, ...(host.state?.queue ?? [])].some(
+      (b) => b && (b.a.id === cronometro.playerId || b.b.id === cronometro.playerId),
+    ),
+    3000,
+    'batalla con tiempos propios',
+  );
+  const timed = [host.state.current, ...host.state.queue].find(
+    (b) => b && (b.a.id === cronometro.playerId || b.b.id === cronometro.playerId),
+  );
+  check('el DTO expone los tiempos de la batalla',
+    typeof timed?.prepMs === 'number' && typeof timed?.battleMs === 'number',
+    JSON.stringify({ prepMs: timed?.prepMs, battleMs: timed?.battleMs }));
+  check('los tiempos fuera de rango se recortan al mínimo permitido',
+    timed && timed.prepMs >= 1000 && timed.battleMs >= 1000,
+    JSON.stringify({ prepMs: timed?.prepMs, battleMs: timed?.battleMs }));
+
   console.log('\n· moderación: expulsar');
   const notHostKick = await ask(fighterA, 'admin:kick', { playerId: molestoso.playerId });
   check('quien no es host no puede expulsar', !notHostKick.ok && notHostKick.code === 'NOT_HOST', JSON.stringify(notHostKick));
@@ -292,7 +321,7 @@ async function main() {
   const afterClose = await fetch(`${URL}/api/lobbies/${code}`);
   check('el código deja de existir después de cerrar', afterClose.status === 404);
 
-  for (const socket of [fighterA, fighterB, judge1, judge2, revived]) socket.disconnect();
+  for (const socket of [fighterA, fighterB, judge1, judge2, cronometro, revived]) socket.disconnect();
   await sleep(200);
 
   console.log(`\n${failures.length === 0 ? '✅' : '❌'} ${checks - failures.length}/${checks} verificaciones\n`);

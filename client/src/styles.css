@@ -817,6 +817,64 @@ button:disabled {
   letter-spacing: 0;
 }
 
+/* Buscador de jugadores: más chico que un input normal, no tiene que gritar. */
+.input--search {
+  padding: 11px 14px;
+  font-size: 0.92rem;
+  border-width: 1px;
+  border-radius: var(--radius-sm);
+}
+
+/* Selector de tiempos de la batalla */
+
+.timing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--line);
+}
+
+.timing__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.timing__label {
+  flex: none;
+  min-width: 84px;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.timing__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.timing__opt {
+  padding: 6px 11px;
+  border-radius: 99px;
+  border: 1px solid var(--line-hot);
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink-dim);
+  transition: all 0.14s;
+}
+
+.timing__opt--on {
+  border-color: var(--toxic);
+  background: rgb(176 38 255 / 22%);
+  color: #fff;
+}
+
 .picker-grid {
   display: flex;
   flex-wrap: wrap;

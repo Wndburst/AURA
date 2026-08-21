@@ -102,9 +102,9 @@ y los contrincantes no pueden votar en su propia batalla.
 
 | | |
 |---|---|
-| **Batallas** | Las arma el host a mano, eligiendo a los dos contrincantes de la lista de conectados. Sin cola automática. |
-| **Preparación** | 60 s antes de que empiece. Si ya hay una en curso, la nueva espera en cola y recibe su propio minuto cuando le toca. |
-| **Batalla** | 120 s. El público reparte `±25.000`, `±75.000`, `±99.999` de aura. |
+| **Batallas** | Las arma el host a mano, buscando y eligiendo a los dos contrincantes de la lista de conectados. Sin cola automática. |
+| **Preparación** | 60 s por defecto, configurable por batalla. Si ya hay una en curso, la nueva espera en cola y recibe su propio tiempo cuando le toca. |
+| **Batalla** | 120 s por defecto, configurable por batalla. El público reparte `±25.000`, `±75.000`, `±99.999` de aura. |
 | **Límite de juicios** | 10 por juez por batalla, con 700 ms de cooldown. Configurable; `0` = ilimitado. |
 | **Resultado** | Gana quien acumuló más aura. El total —positivo o negativo— se suma al leaderboard. |
 | **Moderación** | El host puede expulsar gente (no si está peleando) y cerrar el lobby para siempre. |
@@ -118,7 +118,7 @@ El porqué del límite de juicios y el resto de las decisiones de diseño están
 ## Tests
 
 ```bash
-npm test           # 34 unitarios del dominio: batallas del host, fases, juicios, kick, cierre
+npm test           # 39 unitarios: batallas del host, tiempos, fases, juicios, kick, cierre
 npm run typecheck  # servidor y cliente
 ```
 
@@ -129,7 +129,7 @@ Los de integración necesitan un servidor levantado en el puerto 8099:
 npm run start:test
 
 # terminal 2
-npm run test:e2e          # 68 verificaciones sobre sockets reales
+npm run test:e2e          # 73 verificaciones sobre sockets reales
 npm run test:load 300     # 300 clientes en un lobby, mide latencia y tráfico
 ```
 

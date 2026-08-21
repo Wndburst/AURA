@@ -58,7 +58,7 @@ interface State {
   joinLobby: (code: string) => Promise<boolean>;
   leaveLobby: () => Promise<void>;
 
-  createBattle: (aId: string, bId: string) => Promise<boolean>;
+  createBattle: (aId: string, bId: string, timing?: { prepMs?: number; battleMs?: number }) => Promise<boolean>;
   kickPlayer: (playerId: string) => Promise<boolean>;
   closeLobby: () => Promise<void>;
   judge: (targetId: string, amount: number) => Promise<void>;
@@ -326,8 +326,8 @@ export const useStore = create<State>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  async createBattle(aId: string, bId: string) {
-    const res = await request('battle:create', { aId, bId });
+  async createBattle(aId: string, bId: string, timing) {
+    const res = await request('battle:create', { aId, bId, ...timing });
     if (!res.ok) {
       get().toast(res.error, 'bad');
       sfx.denied();

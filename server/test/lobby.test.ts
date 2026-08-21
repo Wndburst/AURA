@@ -160,6 +160,72 @@ test('la primera batalla queda agendada de inmediato; la segunda espera en cola'
 });
 
 // ---------------------------------------------------------------------------
+// Tiempos configurables por batalla
+// ---------------------------------------------------------------------------
+
+test('sin tiempos explícitos, la batalla usa los defaults del lobby', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0);
+  assert.equal(lobby.queue[0]!.prepMs, config.prepMs);
+  assert.equal(lobby.queue[0]!.battleMs, config.battleMs);
+});
+
+test('el host puede fijar preparación y duración de cada batalla', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0, { prepMs: 10_000, battleMs: 45_000 });
+
+  const battle = lobby.queue[0]!;
+  assert.equal(battle.prepMs, 10_000);
+  assert.equal(battle.battleMs, 45_000);
+
+  lobby.tick(T0);
+  assert.equal(lobby.current!.startsAt, T0 + 10_000, 'respeta la preparación elegida');
+
+  lobby.tick(T0 + 10_000);
+  assert.equal(lobby.current!.status, 'ACTIVE');
+  assert.equal(lobby.current!.endsAt, T0 + 10_000 + 45_000, 'respeta la duración elegida');
+});
+
+test('los tiempos fuera de rango se recortan, no se rechazan', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b', 'c', 'd');
+
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0, { prepMs: 1, battleMs: 1 });
+  assert.equal(lobby.queue[0]!.prepMs, config.minPrepMs);
+  assert.equal(lobby.queue[0]!.battleMs, config.minBattleMs);
+
+  lobby.createHostBattle(hostId, ids[3]!, ids[4]!, T0, { prepMs: 9e9, battleMs: 9e9 });
+  assert.equal(lobby.queue[1]!.prepMs, config.maxPrepMs);
+  assert.equal(lobby.queue[1]!.battleMs, config.maxBattleMs);
+});
+
+test('un tiempo basura cae al default en vez de romper la batalla', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0, {
+    prepMs: Number.NaN,
+    battleMs: Infinity,
+  });
+  assert.equal(lobby.queue[0]!.prepMs, config.prepMs);
+  assert.equal(lobby.queue[0]!.battleMs, config.battleMs);
+});
+
+test('cada batalla en cola conserva sus propios tiempos', () => {
+  const { lobby, ids, hostId } = lobbyWith('host', 'a', 'b', 'c', 'd');
+  lobby.createHostBattle(hostId, ids[1]!, ids[2]!, T0, { prepMs: 10_000, battleMs: 30_000 });
+  lobby.createHostBattle(hostId, ids[3]!, ids[4]!, T0, { prepMs: 20_000, battleMs: 90_000 });
+
+  lobby.tick(T0);
+  const firstEnd = T0 + 10_000 + 30_000;
+  lobby.tick(T0 + 10_000);
+  lobby.tick(firstEnd);
+
+  // La segunda arranca su preparación al terminar la primera, con SU tiempo.
+  assert.equal(lobby.current!.prepMs, 20_000);
+  assert.equal(lobby.current!.startsAt, firstEnd + 20_000);
+  lobby.tick(firstEnd + 20_000);
+  assert.equal(lobby.current!.endsAt, firstEnd + 20_000 + 90_000);
+});
+
+// ---------------------------------------------------------------------------
 // Moderación: kick y cierre
 // ---------------------------------------------------------------------------
 

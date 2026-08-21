@@ -47,6 +47,10 @@ export interface Battle {
   b: Contestant;
   auraA: number;
   auraB: number;
+  /** Preparación de ESTA batalla. Se fija al crearla, no se lee de la config. */
+  prepMs: number;
+  /** Duración de ESTA batalla. Se fija al crearla, no se lee de la config. */
+  battleMs: number;
   judgments: Judgment[];
   judgeUsage: Map<PlayerId, JudgeUsage>;
   judges: Set<PlayerId>;
@@ -96,6 +100,8 @@ export interface BattleDTO {
   b: Contestant;
   auraA: number;
   auraB: number;
+  prepMs: number;
+  battleMs: number;
   judgeCount: number;
   judgmentCount: number;
   createdAt: number;

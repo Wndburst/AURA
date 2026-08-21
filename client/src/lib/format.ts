@@ -46,3 +46,14 @@ export function medal(rank: number): string {
   if (rank === 2) return '🥉';
   return `${rank + 1}`;
 }
+
+/**
+ * Normaliza texto para buscar: sin mayúsculas y sin tildes. Sin esto, buscar
+ * "nico" no encuentra a "Nicolás" y buscar "jose" no encuentra a "José" — que
+ * es exactamente lo que uno tipea apurado en un evento en vivo.
+ */
+const DIACRITICS = new RegExp('[\u0300-\u036f]', 'g');
+
+export function normalize(text: string): string {
+  return text.normalize('NFD').replace(DIACRITICS, '').toLowerCase().trim();
+}

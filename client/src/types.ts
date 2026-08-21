@@ -41,6 +41,8 @@ export interface BattleDTO {
   b: Contestant;
   auraA: number;
   auraB: number;
+  prepMs: number;
+  battleMs: number;
   judgeCount: number;
   judgmentCount: number;
   createdAt: number;
@@ -98,6 +100,11 @@ export interface PublicConfig {
   prepMs: number;
   battleMs: number;
   resultMs: number;
+  /** Rango que el host puede elegir al armar una batalla. */
+  minPrepMs: number;
+  maxPrepMs: number;
+  minBattleMs: number;
+  maxBattleMs: number;
   maxJudgmentsPerBattle: number;
   judgmentCooldownMs: number;
   judgmentAmounts: number[];

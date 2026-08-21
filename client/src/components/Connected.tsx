@@ -1,5 +1,6 @@
+import { useMemo, useState } from 'react';
 import { useStore, selectIsHost } from '../store/useStore';
-import { formatAura } from '../lib/format';
+import { formatAura, normalize } from '../lib/format';
 import type { PlayerDTO } from '../types';
 
 /** Referencia estable para el caso vacío (ver nota en Leaderboard). */
@@ -11,8 +12,20 @@ export function Connected() {
   const isHost = useStore(selectIsHost);
   const kickPlayer = useStore((s) => s.kickPlayer);
 
-  const online = players.filter((p) => p.online);
-  const offline = players.filter((p) => !p.online);
+  const [query, setQuery] = useState('');
+
+  const online = useMemo(() => players.filter((p) => p.online), [players]);
+  const offline = useMemo(() => players.filter((p) => !p.online), [players]);
+
+  const q = normalize(query);
+  const visibleOnline = useMemo(
+    () => (q ? online.filter((p) => normalize(p.nickname).includes(q)) : online),
+    [online, q],
+  );
+  const visibleOffline = useMemo(
+    () => (q ? offline.filter((p) => normalize(p.nickname).includes(q)) : offline),
+    [offline, q],
+  );
 
   const kick = (player: PlayerDTO) => {
     // confirm() nativo: para una acción destructiva de una vez no vale la pena
@@ -31,13 +44,31 @@ export function Connected() {
         </span>
       </div>
 
+      {players.length > 6 && (
+        <input
+          className="input input--search"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar por nickname…"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+      )}
+
       {online.length === 0 ? (
         <div className="empty">
           <span className="empty__skull">👻</span>
           Nadie conectado ahora mismo.
         </div>
+      ) : visibleOnline.length === 0 ? (
+        <div className="empty">
+          <span className="empty__skull">🔍</span>
+          Nadie en línea coincide con «{query}».
+        </div>
       ) : (
-        online.map((player) => (
+        visibleOnline.map((player) => (
           <div key={player.id} className={player.id === me ? 'row row--me' : 'row'}>
             <div className="dot dot--online" />
             <div className="row__body">
@@ -65,13 +96,13 @@ export function Connected() {
         ))
       )}
 
-      {offline.length > 0 && (
+      {visibleOffline.length > 0 && (
         <>
           <div className="section-title">
             Se fueron
             <span>conservan su aura</span>
           </div>
-          {offline.map((player) => (
+          {visibleOffline.map((player) => (
             <div key={player.id} className="row" style={{ opacity: 0.55 }}>
               <div className="dot" />
               <div className="row__body">

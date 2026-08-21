@@ -10,7 +10,26 @@ import type {
   PlayerId,
 } from '../types.js';
 
-export function createBattle(lobbyId: LobbyId, a: Contestant, b: Contestant, now: number): Battle {
+/** Deja un valor dentro de [min, max]; si no es un número usable, cae al default. */
+function clampMs(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+export interface BattleTiming {
+  /** Preparación antes de que arranque. Default: `config.prepMs`. */
+  prepMs?: number;
+  /** Duración de la batalla. Default: `config.battleMs`. */
+  battleMs?: number;
+}
+
+export function createBattle(
+  lobbyId: LobbyId,
+  a: Contestant,
+  b: Contestant,
+  now: number,
+  timing: BattleTiming = {},
+): Battle {
   return {
     id: uuid(),
     lobbyId,
@@ -19,6 +38,11 @@ export function createBattle(lobbyId: LobbyId, a: Contestant, b: Contestant, now
     b: { id: b.id, nickname: b.nickname },
     auraA: 0,
     auraB: 0,
+    // Los tiempos quedan congelados en la batalla al crearla, no se leen de la
+    // config al programarla: si el host arma tres batallas con duraciones
+    // distintas, cada una tiene que respetar la suya cuando le toque el turno.
+    prepMs: clampMs(timing.prepMs, config.prepMs, config.minPrepMs, config.maxPrepMs),
+    battleMs: clampMs(timing.battleMs, config.battleMs, config.minBattleMs, config.maxBattleMs),
     judgments: [],
     judgeUsage: new Map(),
     judges: new Set(),
@@ -34,16 +58,16 @@ export function createBattle(lobbyId: LobbyId, a: Contestant, b: Contestant, now
 /** QUEUED → SCHEDULED: arranca la cuenta regresiva de preparación. */
 export function schedule(battle: Battle, now: number): void {
   battle.status = 'SCHEDULED';
-  battle.startsAt = now + config.prepMs;
-  battle.endsAt = battle.startsAt + config.battleMs;
+  battle.startsAt = now + battle.prepMs;
+  battle.endsAt = battle.startsAt + battle.battleMs;
 }
 
 /** SCHEDULED → ACTIVE. */
 export function activate(battle: Battle, now: number): void {
   battle.status = 'ACTIVE';
-  // Reanclar por si el tick llegó tarde: la batalla siempre dura lo que dice la config.
+  // Reanclar por si el tick llegó tarde: la batalla siempre dura lo que se fijó.
   battle.startsAt = now;
-  battle.endsAt = now + config.battleMs;
+  battle.endsAt = now + battle.battleMs;
 }
 
 /** ACTIVE → FINISHED: se define ganador. */
@@ -184,6 +208,8 @@ export function toBattleDTO(battle: Battle, opts: { includeFeed?: boolean; feedS
     b: battle.b,
     auraA: battle.auraA,
     auraB: battle.auraB,
+    prepMs: battle.prepMs,
+    battleMs: battle.battleMs,
     judgeCount: battle.judges.size,
     judgmentCount: battle.judgments.length,
     createdAt: battle.createdAt,

@@ -32,10 +32,20 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
 
-  /** Preparación antes de que empiece la batalla. */
+  /** Preparación antes de que empiece la batalla (default del lobby). */
   prepMs: num('PREP_MS', 60_000),
-  /** Duración de la batalla activa. */
+  /** Duración de la batalla activa (default del lobby). */
   battleMs: num('BATTLE_MS', 120_000),
+
+  /**
+   * Límites para los tiempos que el host puede elegir por batalla. El cliente
+   * ofrece un selector, pero el servidor recorta igual: nunca hay que confiar
+   * en que el número llegue dentro de rango.
+   */
+  minPrepMs: num('MIN_PREP_MS', 5_000),
+  maxPrepMs: num('MAX_PREP_MS', 10 * 60_000),
+  minBattleMs: num('MIN_BATTLE_MS', 15_000),
+  maxBattleMs: num('MAX_BATTLE_MS', 15 * 60_000),
   /** Cuánto se queda el resultado en pantalla antes de pasar al historial. */
   resultMs: num('RESULT_MS', 20_000),
 
@@ -89,6 +99,10 @@ export function publicConfig() {
     prepMs: config.prepMs,
     battleMs: config.battleMs,
     resultMs: config.resultMs,
+    minPrepMs: config.minPrepMs,
+    maxPrepMs: config.maxPrepMs,
+    minBattleMs: config.minBattleMs,
+    maxBattleMs: config.maxBattleMs,
     maxJudgmentsPerBattle: config.maxJudgmentsPerBattle,
     judgmentCooldownMs: config.judgmentCooldownMs,
     judgmentAmounts: JUDGMENT_AMOUNTS,

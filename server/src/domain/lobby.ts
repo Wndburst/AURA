@@ -10,6 +10,7 @@ import {
   judgmentsLeftFor,
   schedule,
   toBattleDTO,
+  type BattleTiming,
   type JudgeResult,
 } from './battle.js';
 import type {
@@ -227,6 +228,7 @@ export class Lobby {
     aId: PlayerId,
     bId: PlayerId,
     now = Date.now(),
+    timing: BattleTiming = {},
   ): AdminResult<{ battleId: BattleId }> {
     if (!this.isHostOf(hostId)) {
       return { ok: false, error: 'NOT_HOST', message: 'Sólo el organizador puede armar batallas.' };
@@ -243,7 +245,13 @@ export class Lobby {
       return { ok: false, error: 'ALREADY_BOOKED', message: 'Alguno de los dos ya tiene una batalla agendada.' };
     }
 
-    const battle = createBattle(this.id, { id: a.id, nickname: a.nickname }, { id: b.id, nickname: b.nickname }, now);
+    const battle = createBattle(
+      this.id,
+      { id: a.id, nickname: a.nickname },
+      { id: b.id, nickname: b.nickname },
+      now,
+      timing,
+    );
     this.queue.push(battle);
     this.markRoster(); // ambos pasan a "en batalla" en el listado
     this.touch(now);

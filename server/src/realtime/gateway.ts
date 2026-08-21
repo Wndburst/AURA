@@ -228,12 +228,22 @@ export function createGateway(httpServer: HttpServer): Server {
       const lobby = currentLobby(socket);
       if (!lobby) return fail(ack, 'No estás en ningún lobby.', 'NO_LOBBY');
 
-      const body = (payload ?? {}) as { aId?: unknown; bId?: unknown };
+      const body = (payload ?? {}) as {
+        aId?: unknown;
+        bId?: unknown;
+        prepMs?: unknown;
+        battleMs?: unknown;
+      };
       if (typeof body.aId !== 'string' || typeof body.bId !== 'string') {
         return fail(ack, 'Elige a los dos contrincantes.', 'BAD_PAYLOAD');
       }
 
-      const result = lobby.createHostBattle(data(socket).playerId, body.aId, body.bId);
+      // Los tiempos son opcionales: si no vienen (o vienen basura) se usan los
+      // del lobby. `createBattle` los recorta al rango permitido igual.
+      const result = lobby.createHostBattle(data(socket).playerId, body.aId, body.bId, Date.now(), {
+        prepMs: typeof body.prepMs === 'number' ? body.prepMs : undefined,
+        battleMs: typeof body.battleMs === 'number' ? body.battleMs : undefined,
+      });
       if (!result.ok) return fail(ack, result.message ?? 'No se pudo crear la batalla.', result.error);
 
       // La agenda al toque: si el carril estaba libre, arranca su preparación ya.

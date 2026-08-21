@@ -63,8 +63,8 @@ Tres vistas (tabs):
 | Vista | Contenido |
 |---|---|
 | **LEADERBOARD** | Ranking por AURA acumulada. Incluye a quien ya se desconectó (el aura no se pierde). Muestra 🥇🥈🥉, W/L y batallas jugadas. |
-| **CONECTADOS** | Sólo usuarios online *ahora*. Marca quién está `EN BATALLA` y quién es el host. Si sos el host, cada fila trae un botón ⛔ para expulsar. |
-| **BATALLAS** | Batalla en curso + agendada + cola de próximas + historial de las últimas 20. Si sos el host, arriba de todo aparece el **panel del organizador**: tocás a dos personas conectadas y disponibles, y armás la batalla. |
+| **CONECTADOS** | Sólo usuarios online *ahora*. Marca quién está `EN BATALLA` y quién es el host. Trae buscador por nickname (aparece con más de 6 personas), y si sos el host cada fila lleva un botón ⛔ para expulsar. |
+| **BATALLAS** | Batalla en curso + agendada + cola de próximas + historial de las últimas 20. Si sos el host, arriba de todo aparece el **panel del organizador**: buscás y tocás a dos personas conectadas y disponibles, elegís preparación y duración, y armás la batalla. |
 
 Sin barra inferior fija: no hay ningún botón de auto-búsqueda — sólo el host decide quién
 pelea. En el pie de la pantalla, el host además tiene un enlace para **cerrar el lobby**.
@@ -87,13 +87,18 @@ No hay matchmaking automático. El **host** (quien creó el lobby, o a quien se 
 el rol si el host original se va) elige a los dos contrincantes desde la lista de conectados
 y crea la batalla:
 
-1. El host toca a dos personas **conectadas y disponibles** (no comprometidas ya en otra
-   batalla) y confirma.
+1. El host busca por nickname (la búsqueda ignora tildes y mayúsculas: «nico» encuentra a
+   «Nicolás»), toca a dos personas **conectadas y disponibles** (no comprometidas ya en otra
+   batalla), ajusta los tiempos si quiere, y confirma.
 2. Si **no hay batalla en curso ni agendada** → la nueva batalla queda `SCHEDULED`, empieza
    en **60 s** — tiempo para que los elegidos se acerquen al frente.
 3. Si **ya hay una batalla en curso o agendada** → la nueva queda `QUEUED`. Cuando le toca el
    turno, pasa a `SCHEDULED` con sus propios 60 s de preparación.
-4. Nadie más que el host puede iniciar una batalla. Esto es deliberado: en un evento en vivo,
+4. **Cada batalla lleva sus propios tiempos**: el host elige preparación y duración al
+   crearla, y quedan congelados en esa batalla. Si arma tres seguidas con duraciones
+   distintas, cada una respeta la suya cuando le toca el turno — no se lee la config al
+   momento de programarla. Sin elegir nada, usa los defaults del lobby.
+5. Nadie más que el host puede iniciar una batalla. Esto es deliberado: en un evento en vivo,
    dejar que cualquiera se auto-encole genera gente que nunca se presenta al frente del
    público — el host conoce a quién tiene enfrente y decide.
 
@@ -213,7 +218,7 @@ Battle {
 | `lobby:join` | `{ code, nickname }` — rechaza con `BANNED` si el `playerId` fue expulsado de ese lobby |
 | `lobby:leave` | — |
 | `player:rename` | `{ nickname }` |
-| `battle:create` | `{ aId, bId }` — **sólo el host**; arma una batalla entre esos dos jugadores |
+| `battle:create` | `{ aId, bId, prepMs?, battleMs? }` — **sólo el host**; los tiempos son opcionales y el servidor los recorta al rango permitido |
 | `admin:kick` | `{ playerId }` — **sólo el host**; expulsa y desconecta |
 | `admin:close` | — **sólo el host**; cierra el lobby para siempre |
 | `battle:judge` | `{ battleId, targetId, amount }` |
@@ -302,6 +307,8 @@ las variables del entorno real tienen prioridad sobre el archivo.
 | `PREP_MS` | `60000` | Preparación antes de la batalla. |
 | `BATTLE_MS` | `120000` | Duración de la batalla. |
 | `RESULT_MS` | `20000` | Cuánto queda el resultado en pantalla. |
+| `MIN_PREP_MS` / `MAX_PREP_MS` | `5000` / `600000` | Rango que el host puede elegir de preparación. |
+| `MIN_BATTLE_MS` / `MAX_BATTLE_MS` | `15000` / `900000` | Rango que el host puede elegir de duración. |
 | `MAX_JUDGMENTS_PER_BATTLE` | `10` | Juicios por juez por batalla (`0` = ilimitado). |
 | `JUDGMENT_COOLDOWN_MS` | `700` | Cooldown entre juicios. |
 | `LOBBY_TTL_MS` | `21600000` | TTL de lobby inactivo (6 h). |
@@ -322,6 +329,8 @@ las variables del entorno real tienen prioridad sobre el archivo.
 - [x] Lista de conectados en vivo con estados.
 - [x] Vista de próximas batallas + cola + historial.
 - [x] El host arma la batalla eligiendo a los dos contrincantes; nadie más puede.
+- [x] Buscador por nickname en el panel del organizador y en la lista de conectados.
+- [x] Preparación y duración configurables por batalla, con rango validado en el servidor.
 - [x] 1 minuto de preparación; encolado si ya hay una en curso.
 - [x] Arena de juicio con los 6 montos fijos.
 - [x] 2 minutos de batalla, resultado y actualización del leaderboard.
@@ -336,8 +345,8 @@ las variables del entorno real tienen prioridad sobre el archivo.
 
 | Verificación | Resultado |
 |---|---|
-| Unitarios del dominio (`npm test`) | 34/34 |
-| End-to-end sobre sockets reales (`npm run test:e2e`) | 68/68, incluye armado por host, kick y cierre |
+| Unitarios del dominio (`npm test`) | 39/39 |
+| End-to-end sobre sockets reales (`npm run test:e2e`) | 73/73, incluye armado por host, tiempos propios, kick y cierre |
 | Carga, 300 clientes en un lobby (`npm run test:load 300`) | p99 85 ms · 0 rechazos · ~22 MB |
 | Persistencia entre reinicios | verificada (aura, victorias y lobby recuperados) |
 | `npm run typecheck` (servidor y cliente) | limpio |
